@@ -1,0 +1,12 @@
+*
+!pom.xml
+!Dockerfile
+!platform-common/
+!platform-common/**
+!identity-service/
+!identity-service/**
+!project-service/
+!project-service/**
+!api-gateway/
+!api-gateway/**
+**/target

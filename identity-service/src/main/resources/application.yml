@@ -1,0 +1,35 @@
+server:
+  port: ${SERVER_PORT:8081}
+
+spring:
+  application:
+    name: identity-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/project_os}
+    username: ${IDENTITY_DB_USERNAME:project_os}
+    password: ${IDENTITY_DB_PASSWORD:local_project_os_password}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:5}
+  flyway:
+    create-schemas: true
+    default-schema: identity
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate.default_schema: identity
+
+management.endpoints.web.exposure.include: health,info
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:local-development-jwt-secret-32-characters-minimum}
+    access-ttl-minutes: ${JWT_ACCESS_TTL_MINUTES:15}
+    refresh-ttl-days: ${JWT_REFRESH_TTL_DAYS:14}
+  cookie:
+    secure: ${COOKIE_SECURE:false}
+  bootstrap-admin:
+    email: ${BOOTSTRAP_ADMIN_EMAIL:}
+    password: ${BOOTSTRAP_ADMIN_PASSWORD:}
+    display-name: ${BOOTSTRAP_ADMIN_NAME:Administrator}

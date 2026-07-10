@@ -1,13 +1,110 @@
+name: project-os-platform
+
+x-service: &service
+  restart: unless-stopped
+  environment:
+    DB_URL: jdbc:postgresql://postgres:5432/project_os
+    JWT_SECRET: ${JWT_SECRET}
+    DB_POOL_SIZE: 5
+  depends_on:
+    postgres:
+      condition: service_healthy
+  networks: [project-os]
+
 services:
   postgres:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: project_os
-      POSTGRES_USER: project_os
-      POSTGRES_PASSWORD: local_project_os_password
-    ports:
-      - "127.0.0.1:5433:5432"
+      POSTGRES_USER: project_os_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD}
+      PROJECT_DB_PASSWORD: ${PROJECT_DB_PASSWORD}
     volumes:
-      - project_os_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/init-services.sh:/docker-entrypoint-initdb.d/01-services.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U project_os_owner -d project_os"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [project-os]
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    profiles: [storage-dev]
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "127.0.0.1:9001:9001"
+    networks: [project-os]
+
+  identity-service:
+    <<: *service
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args: { MODULE: identity-service }
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/project_os
+      IDENTITY_DB_USERNAME: identity_app
+      IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-Administrator}
+      DB_POOL_SIZE: 5
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  project-service:
+    <<: *service
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args: { MODULE: project-service }
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/project_os
+      PROJECT_DB_USERNAME: project_app
+      PROJECT_DB_PASSWORD: ${PROJECT_DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      DB_POOL_SIZE: 5
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args: { MODULE: api-gateway }
+    restart: unless-stopped
+    environment:
+      SERVER_ADDRESS: 0.0.0.0
+      IDENTITY_SERVICE_URL: http://identity-service:8081
+      PROJECT_SERVICE_URL: http://project-service:8082
+    depends_on:
+      identity-service: { condition: service_healthy }
+      project-service: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks: [project-os]
+
+networks:
+  project-os:
+
 volumes:
-  project_os_data:
+  postgres_data:
+  minio_data:
