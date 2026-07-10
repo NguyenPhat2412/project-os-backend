@@ -37,6 +37,8 @@ class AuthContractTest {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("app.jwt.secret", () -> "test-secret-that-is-at-least-32-bytes-long");
         registry.add("app.cookie.secure", () -> false);
+        registry.add("app.google.client-id", () -> "test-google-client-id");
+        registry.add("app.google.client-secret", () -> "test-google-client-secret");
     }
 
     @Autowired MockMvc mvc;
@@ -65,6 +67,13 @@ class AuthContractTest {
         mvc.perform(post("/api/v1/auth/refresh")
                         .cookie(new MockCookie("PROJECT_OS_REFRESH", "invalid")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void googleLoginStartsAuthorizationCodeFlow() throws Exception {
+        mvc.perform(get("/api/v1/oauth2/authorization/google"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string("Location", org.hamcrest.Matchers.containsString("accounts.google.com")));
     }
 
     @Test

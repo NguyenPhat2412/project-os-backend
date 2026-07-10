@@ -1,5 +1,6 @@
 server:
   port: ${SERVER_PORT:8081}
+  forward-headers-strategy: framework
 
 spring:
   application:
@@ -33,3 +34,7 @@ app:
     email: ${BOOTSTRAP_ADMIN_EMAIL:}
     password: ${BOOTSTRAP_ADMIN_PASSWORD:}
     display-name: ${BOOTSTRAP_ADMIN_NAME:Administrator}
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:}
+    client-secret: ${GOOGLE_CLIENT_SECRET:}
+    success-url: ${GOOGLE_OAUTH_SUCCESS_URL:http://localhost:3000/projects}

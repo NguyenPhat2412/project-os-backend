@@ -43,6 +43,17 @@ class AuthService {
         return new Session(UserView.from(user), tokens.issue(user));
     }
 
+    @Transactional
+    Session google(String emailAddress, String displayName, String avatarUrl) {
+        String email = normalize(emailAddress);
+        UserAccount user = users.findByEmail(email).orElseGet(() -> users.save(new UserAccount(email, null,
+                displayName.trim(), UserAccount.Role.USER)));
+        String nextName = displayName == null || displayName.isBlank() ? user.getDisplayName() : displayName.trim();
+        String nextAvatar = avatarUrl == null || avatarUrl.isBlank() ? user.getAvatarUrl() : avatarUrl;
+        user.updateProfile(nextName, nextAvatar);
+        return new Session(UserView.from(user), tokens.issue(user));
+    }
+
     @Transactional(readOnly = true)
     UserView me(UUID id) {
         return users.findById(id).map(UserView::from)
