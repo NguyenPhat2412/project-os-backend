@@ -1,7 +1,24 @@
+### Build output ###
 HELP.md
 target/
+*.class
+*.jar
+*.war
+*.nar
+hs_err_pid*
+replay_pid*
+
+### Environment and secrets ###
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+
+### Runtime files ###
 *.log
+logs/
+*.pid
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
@@ -16,7 +33,7 @@ target/
 .sts4-cache
 
 ### IntelliJ IDEA ###
-.idea
+.idea/
 *.iws
 *.iml
 *.ipr
@@ -33,3 +50,8 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Operating systems ###
+.DS_Store
+Thumbs.db
+Desktop.ini
