@@ -15,6 +15,8 @@ frontend to PostgreSQL-backed Project APIs without interrupting current services
 - Secrets and generated files are excluded by `.gitignore`.
 - Postman files remain available locally but are no longer tracked by Git.
 - Verified tracked count for Postman, `.env.local`, build output and IDE metadata: `0`.
+- Backend onboarding README expanded in commit `fdd1d26` with local setup,
+  configuration, authentication, API, migration, testing, build, and production guidance.
 
 ## Verified Before Deployment
 
