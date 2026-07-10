@@ -10,7 +10,7 @@ import org.springframework.stereotype.Service;
 import vn.uytinmang.projectos.platform.security.CookieCsrfFilter;
 
 @Service
-class AuthCookieService {
+public class AuthCookieService {
     static final String ACCESS_COOKIE = "PROJECT_OS_ACCESS";
     static final String REFRESH_COOKIE = "PROJECT_OS_REFRESH";
     private final boolean secure;
@@ -28,7 +28,7 @@ class AuthCookieService {
         response.addHeader(HttpHeaders.SET_COOKIE, csrfCookie(csrfToken(), tokens.refreshMaxAge()).toString());
     }
 
-    void clear(HttpServletResponse response) {
+    public void clear(HttpServletResponse response) {
         response.addHeader(HttpHeaders.SET_COOKIE, cookie(ACCESS_COOKIE, "", "/", 0).toString());
         response.addHeader(HttpHeaders.SET_COOKIE, cookie(REFRESH_COOKIE, "", "/api/v1/auth", 0).toString());
         response.addHeader(HttpHeaders.SET_COOKIE, csrfCookie("", 0).toString());

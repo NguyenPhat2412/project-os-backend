@@ -52,4 +52,9 @@ public class UserAccount {
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public void setRole(Role role) { this.role = role; }
+    public void updateProfile(String displayName, String avatarUrl) {
+        this.displayName = displayName;
+        this.avatarUrl = avatarUrl;
+    }
+    public void changePassword(String passwordHash) { this.passwordHash = passwordHash; }
 }

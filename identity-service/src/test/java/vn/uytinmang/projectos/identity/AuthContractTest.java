@@ -1,10 +1,15 @@
 package vn.uytinmang.projectos.identity;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import jakarta.servlet.http.Cookie;
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -60,5 +65,51 @@ class AuthContractTest {
         mvc.perform(post("/api/v1/auth/refresh")
                         .cookie(new MockCookie("PROJECT_OS_REFRESH", "invalid")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void profilePreferencesAndPasswordPersistInIdentitySchema() throws Exception {
+        String email = "profile@example.com";
+        var response = mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + email
+                                + "\",\"password\":\"StrongPass123!\",\"displayName\":\"Before\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse();
+        Cookie access = cookie(response.getCookies(), "PROJECT_OS_ACCESS");
+        Cookie csrf = cookie(response.getCookies(), "XSRF-TOKEN");
+
+        mvc.perform(patch("/api/v1/users/me/profile").cookie(access, csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"displayName\":\"After\",\"department\":\"Engineering\","
+                                + "\"skills\":[\"Java\",\"PostgreSQL\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.displayName").value("After"))
+                .andExpect(jsonPath("$.data.skills[1]").value("PostgreSQL"));
+
+        mvc.perform(get("/api/v1/users/me/profile").cookie(access))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.department").value("Engineering"));
+
+        mvc.perform(put("/api/v1/users/me/preferences/notifications").cookie(access, csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"emailProjects\":false,\"channelPush\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.channelPush").value(true));
+
+        mvc.perform(post("/api/v1/users/me/password").cookie(access, csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"StrongPass123!\",\"newPassword\":\"ChangedPass456!\"}"))
+                .andExpect(status().isNoContent());
+
+        mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + email + "\",\"password\":\"StrongPass123!\"}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + email + "\",\"password\":\"ChangedPass456!\"}"))
+                .andExpect(status().isOk());
+    }
+
+    private Cookie cookie(Cookie[] cookies, String name) {
+        return Arrays.stream(cookies).filter(cookie -> name.equals(cookie.getName())).findFirst()
+                .orElseThrow(() -> new AssertionError("Missing cookie " + name));
     }
 }
