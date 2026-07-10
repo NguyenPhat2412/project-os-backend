@@ -16,8 +16,13 @@
 
     <modules>
         <module>platform-common</module>
+        <module>resource-service-core</module>
         <module>identity-service</module>
         <module>project-service</module>
+        <module>work-service</module>
+        <module>operations-service</module>
+        <module>knowledge-service</module>
+        <module>activity-service</module>
         <module>api-gateway</module>
     </modules>
 

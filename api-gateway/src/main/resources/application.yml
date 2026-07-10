@@ -9,9 +9,29 @@ spring:
       uri: ${IDENTITY_SERVICE_URL:http://localhost:8081}
       predicates:
         - Path=/api/v1/auth/**,/api/v1/users/**
+    - id: activity-comments
+      uri: ${ACTIVITY_SERVICE_URL:http://localhost:8086}
+      predicates:
+        - Path=/api/v1/projects/*/*/*/comments/**
+    - id: work-service
+      uri: ${WORK_SERVICE_URL:http://localhost:8083}
+      predicates:
+        - Path=/api/v1/projects/*/tasks/**,/api/v1/projects/*/task-columns/**,/api/v1/projects/*/sprints/**,/api/v1/projects/*/epics/**,/api/v1/projects/*/user-stories/**,/api/v1/projects/*/bugs/**,/api/v1/projects/*/bug-columns/**
+    - id: operations-service
+      uri: ${OPERATIONS_SERVICE_URL:http://localhost:8084}
+      predicates:
+        - Path=/api/v1/projects/*/risks/**,/api/v1/projects/*/budget-items/**,/api/v1/projects/*/expenses/**,/api/v1/projects/*/timeline-phases/**,/api/v1/projects/*/milestones/**,/api/v1/projects/*/meetings/**,/api/v1/projects/*/notes/**,/api/v1/projects/*/action-items/**
+    - id: knowledge-service
+      uri: ${KNOWLEDGE_SERVICE_URL:http://localhost:8085}
+      predicates:
+        - Path=/api/v1/storage/**,/api/v1/projects/*/folders/**,/api/v1/projects/*/documents/**,/api/v1/projects/*/wikis/**,/api/v1/projects/*/wiki-links/**,/api/v1/projects/*/attachments/**,/api/v1/projects/*/doc-activities/**
+    - id: activity-service
+      uri: ${ACTIVITY_SERVICE_URL:http://localhost:8086}
+      predicates:
+        - Path=/api/v1/projects/*/comments/**,/api/v1/projects/*/activities/**,/api/v1/projects/*/notifications/**
     - id: project-service
       uri: ${PROJECT_SERVICE_URL:http://localhost:8082}
       predicates:
-        - Path=/api/v1/projects/**
+        - Path=/api/v1/projects,/api/v1/projects/*,/api/v1/projects/*/members/**,/api/v1/projects/*/roles/**,/api/v1/projects/*/role-assignments/**,/api/v1/projects/*/settings/**
 
 management.endpoints.web.exposure.include: health,info

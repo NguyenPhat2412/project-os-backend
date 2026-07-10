@@ -1,21 +1,20 @@
-server.port: ${SERVER_PORT:8082}
-
+server.port: ${SERVER_PORT:8086}
 spring:
-  application.name: project-service
+  application.name: activity-service
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/project_os}
-    username: ${PROJECT_DB_USERNAME:project_os}
-    password: ${PROJECT_DB_PASSWORD:local_project_os_password}
+    username: ${ACTIVITY_DB_USERNAME:project_os}
+    password: ${ACTIVITY_DB_PASSWORD:local_project_os_password}
     hikari.maximum-pool-size: ${DB_POOL_SIZE:5}
   flyway:
     create-schemas: true
-    default-schema: project
+    default-schema: activity
   jpa:
     hibernate.ddl-auto: validate
     open-in-view: false
-    properties.hibernate.default_schema: project
-
+    properties.hibernate.default_schema: activity
 management.endpoints.web.exposure.include: health,info
 app:
   jwt.secret: ${JWT_SECRET:local-development-jwt-secret-32-characters-minimum}
-  resources: members,roles,role-assignments,settings
+  resources: comments,activities,notifications
+  immutable-resources: activities

@@ -1,21 +1,19 @@
-server.port: ${SERVER_PORT:8082}
-
+server.port: ${SERVER_PORT:8084}
 spring:
-  application.name: project-service
+  application.name: operations-service
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/project_os}
-    username: ${PROJECT_DB_USERNAME:project_os}
-    password: ${PROJECT_DB_PASSWORD:local_project_os_password}
+    username: ${OPERATIONS_DB_USERNAME:project_os}
+    password: ${OPERATIONS_DB_PASSWORD:local_project_os_password}
     hikari.maximum-pool-size: ${DB_POOL_SIZE:5}
   flyway:
     create-schemas: true
-    default-schema: project
+    default-schema: operations
   jpa:
     hibernate.ddl-auto: validate
     open-in-view: false
-    properties.hibernate.default_schema: project
-
+    properties.hibernate.default_schema: operations
 management.endpoints.web.exposure.include: health,info
 app:
   jwt.secret: ${JWT_SECRET:local-development-jwt-secret-32-characters-minimum}
-  resources: members,roles,role-assignments,settings
+  resources: risks,budget-items,expenses,timeline-phases,milestones,meetings,notes,action-items

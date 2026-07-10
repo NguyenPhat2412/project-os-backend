@@ -2,6 +2,7 @@ name: project-os-platform
 
 x-service: &service
   restart: unless-stopped
+  mem_limit: 384m
   environment:
     DB_URL: jdbc:postgresql://postgres:5432/project_os
     JWT_SECRET: ${JWT_SECRET}
@@ -21,6 +22,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD}
       PROJECT_DB_PASSWORD: ${PROJECT_DB_PASSWORD}
+      WORK_DB_PASSWORD: ${WORK_DB_PASSWORD}
+      OPERATIONS_DB_PASSWORD: ${OPERATIONS_DB_PASSWORD}
+      KNOWLEDGE_DB_PASSWORD: ${KNOWLEDGE_DB_PASSWORD}
+      ACTIVITY_DB_PASSWORD: ${ACTIVITY_DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./deploy/postgres/init-services.sh:/docker-entrypoint-initdb.d/01-services.sh:ro
@@ -42,7 +47,7 @@ services:
     volumes:
       - minio_data:/data
     ports:
-      - "127.0.0.1:9001:9001"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-19001}:9001"
     networks: [project-os]
 
   identity-service:
@@ -85,6 +90,82 @@ services:
       timeout: 3s
       retries: 20
 
+  work-service:
+    <<: *service
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args: { MODULE: work-service }
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/project_os
+      WORK_DB_USERNAME: work_app
+      WORK_DB_PASSWORD: ${WORK_DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      DB_POOL_SIZE: 5
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  operations-service:
+    <<: *service
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args: { MODULE: operations-service }
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/project_os
+      OPERATIONS_DB_USERNAME: operations_app
+      OPERATIONS_DB_PASSWORD: ${OPERATIONS_DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      DB_POOL_SIZE: 5
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  knowledge-service:
+    <<: *service
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args: { MODULE: knowledge-service }
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/project_os
+      KNOWLEDGE_DB_USERNAME: knowledge_app
+      KNOWLEDGE_DB_PASSWORD: ${KNOWLEDGE_DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-project-os}
+      DB_POOL_SIZE: 5
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  activity-service:
+    <<: *service
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args: { MODULE: activity-service }
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/project_os
+      ACTIVITY_DB_USERNAME: activity_app
+      ACTIVITY_DB_PASSWORD: ${ACTIVITY_DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      DB_POOL_SIZE: 5
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8086/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
   api-gateway:
     build:
       context: .
@@ -95,9 +176,17 @@ services:
       SERVER_ADDRESS: 0.0.0.0
       IDENTITY_SERVICE_URL: http://identity-service:8081
       PROJECT_SERVICE_URL: http://project-service:8082
+      WORK_SERVICE_URL: http://work-service:8083
+      OPERATIONS_SERVICE_URL: http://operations-service:8084
+      KNOWLEDGE_SERVICE_URL: http://knowledge-service:8085
+      ACTIVITY_SERVICE_URL: http://activity-service:8086
     depends_on:
       identity-service: { condition: service_healthy }
       project-service: { condition: service_healthy }
+      work-service: { condition: service_healthy }
+      operations-service: { condition: service_healthy }
+      knowledge-service: { condition: service_healthy }
+      activity-service: { condition: service_healthy }
     ports:
       - "127.0.0.1:${GATEWAY_PORT:-18080}:8080"
     networks: [project-os]
