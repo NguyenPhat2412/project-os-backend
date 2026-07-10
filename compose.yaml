@@ -99,7 +99,7 @@ services:
       identity-service: { condition: service_healthy }
       project-service: { condition: service_healthy }
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${GATEWAY_PORT:-18080}:8080"
     networks: [project-os]
 
 networks:

@@ -15,7 +15,9 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import vn.uytinmang.projectos.platform.security.CookieBearerTokenResolver;
+import vn.uytinmang.projectos.platform.security.CookieCsrfFilter;
 
 @Configuration
 @EnableMethodSecurity
@@ -34,6 +36,8 @@ class SecurityConfig {
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(roles);
         http.csrf(csrf -> csrf.disable())
+                .addFilterBefore(new CookieCsrfFilter("PROJECT_OS_ACCESS"),
+                        BearerTokenAuthenticationFilter.class)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/actuator/health").permitAll().anyRequest().authenticated())

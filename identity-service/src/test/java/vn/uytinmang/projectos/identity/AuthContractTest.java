@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockCookie;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -43,12 +44,21 @@ class AuthContractTest {
                 .andExpect(jsonPath("$.data.user.email").value("owner@example.com"))
                 .andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.allOf(
                         org.hamcrest.Matchers.containsString("PROJECT_OS_ACCESS="),
-                        org.hamcrest.Matchers.containsString("HttpOnly"))));
+                        org.hamcrest.Matchers.containsString("HttpOnly"))))
+                .andExpect(header().stringValues("Set-Cookie", org.hamcrest.Matchers.hasItem(
+                        org.hamcrest.Matchers.containsString("XSRF-TOKEN="))));
 
         mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"owner@example.com\",\"password\":\"StrongPass123!\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.user.displayName").value("Owner"))
                 .andExpect(header().exists("Set-Cookie"));
+    }
+
+    @Test
+    void refreshCookieRequiresMatchingCsrfHeader() throws Exception {
+        mvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(new MockCookie("PROJECT_OS_REFRESH", "invalid")))
+                .andExpect(status().isForbidden());
     }
 }

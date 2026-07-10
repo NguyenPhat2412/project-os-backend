@@ -17,7 +17,9 @@ import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import vn.uytinmang.projectos.platform.security.CookieBearerTokenResolver;
+import vn.uytinmang.projectos.platform.security.CookieCsrfFilter;
 
 @Configuration
 @EnableMethodSecurity
@@ -40,6 +42,8 @@ class SecurityConfig {
 
     @Bean SecurityFilterChain security(HttpSecurity http, JwtDecoder decoder) throws Exception {
         http.csrf(csrf -> csrf.disable())
+                .addFilterBefore(new CookieCsrfFilter("PROJECT_OS_ACCESS", "PROJECT_OS_REFRESH"),
+                        BearerTokenAuthenticationFilter.class)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh",

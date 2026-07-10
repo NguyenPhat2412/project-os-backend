@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockCookie;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -58,5 +59,10 @@ class ProjectContractTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].status").value("active"))
                 .andExpect(jsonPath("$.meta.total").value(1));
+
+        mvc.perform(post("/api/v1/projects").with(admin)
+                        .cookie(new MockCookie("PROJECT_OS_ACCESS", "cookie-token"))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
     }
 }
