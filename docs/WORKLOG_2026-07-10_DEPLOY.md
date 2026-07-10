@@ -11,7 +11,10 @@ frontend to PostgreSQL-backed Project APIs without interrupting current services
 - Branch: `main`
 - Initial backend commit: `2c640c4`
 - Repository preparation commit: `0ebaefe`
+- Repository cleanup commit: `9a9e7de`
 - Secrets and generated files are excluded by `.gitignore`.
+- Postman files remain available locally but are no longer tracked by Git.
+- Verified tracked count for Postman, `.env.local`, build output and IDE metadata: `0`.
 
 ## Verified Before Deployment
 
