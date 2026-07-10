@@ -11,7 +11,4 @@ $env:JWT_SECRET='local-development-jwt-secret-32-characters-minimum'
 .\mvnw.cmd spring-boot:run
 ```
 
-The API runs at `http://127.0.0.1:8081`. Import
-`postman/ProjectOS.postman_collection.json` to test authentication and Project CRUD.
-
-See [Postman instructions](docs/POSTMAN.md) for the complete request order.
+The API runs at `http://127.0.0.1:8081`.

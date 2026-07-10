@@ -12,6 +12,11 @@ replay_pid*
 .env
 .env.*
 !.env.example
+.env.local
+.env.development
+.env.production
+.env.test
+*.local
 *.pem
 *.key
 
@@ -19,6 +24,10 @@ replay_pid*
 *.log
 logs/
 *.pid
+
+### Local API clients ###
+postman/
+docs/POSTMAN.md
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
