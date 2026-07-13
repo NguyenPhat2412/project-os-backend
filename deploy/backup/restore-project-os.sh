@@ -11,13 +11,15 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 COMPOSE_FILE=${PROJECT_OS_COMPOSE_FILE:-"$ROOT/compose.yaml"}
+ENV_FILE=${PROJECT_OS_ENV_FILE:-"$ROOT/.env.production"}
 MINIO_VOLUME=${MINIO_VOLUME:-project-os-platform_minio_data}
+[ -f "$ENV_FILE" ] || { echo "Environment file not found: $ENV_FILE" >&2; exit 2; }
 case "$MINIO_VOLUME" in
   project-os-platform_minio_data) ;;
   *) echo "Refusing to restore an unexpected MinIO volume: $MINIO_VOLUME" >&2; exit 2 ;;
 esac
-docker compose -f "$COMPOSE_FILE" stop identity-service project-service work-service operations-service knowledge-service activity-service api-gateway
-cat "$1" | docker compose -f "$COMPOSE_FILE" exec -T postgres pg_restore -U project_os_owner -d project_os --clean --if-exists --no-owner
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" stop identity-service organization-service attendance-service project-service work-service operations-service knowledge-service activity-service api-gateway
+cat "$1" | docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres pg_restore -U project_os_owner -d project_os --clean --if-exists --no-owner
 if [ $# -eq 2 ]; then
   ARCHIVE_DIR=$(CDPATH= cd -- "$(dirname "$2")" && pwd)
   ARCHIVE_NAME=$(basename "$2")
@@ -27,4 +29,5 @@ if [ $# -eq 2 ]; then
   docker run --rm -v "$MINIO_VOLUME:/data" -v "$ARCHIVE_DIR:/backup:ro" alpine:3.20 \
     sh -c "find /data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && tar -C /data -xzf /backup/$ARCHIVE_NAME"
 fi
-docker compose -f "$COMPOSE_FILE" start identity-service project-service work-service operations-service knowledge-service activity-service api-gateway
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T redis redis-cli FLUSHDB >/dev/null
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" start identity-service organization-service attendance-service project-service work-service operations-service knowledge-service activity-service api-gateway
