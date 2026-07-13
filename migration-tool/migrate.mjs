@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
-import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app';
+import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import pg from 'pg';
 
@@ -25,6 +25,14 @@ function required(name) {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required in ${APPLY ? 'apply' : 'this'} mode`);
   return value;
+}
+
+function firebaseCredential() {
+  const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  if (projectId && clientEmail && privateKey) return cert({ projectId, clientEmail, privateKey });
+  return applicationDefault();
 }
 
 function normalize(value) {
@@ -207,7 +215,8 @@ async function migrateResources(db, project, targetProjectId, api, mappings) {
 }
 
 async function main() {
-  if (!getApps().length) initializeApp({ credential: applicationDefault(), projectId: process.env.FIREBASE_PROJECT_ID || undefined });
+  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.FIREBASE_ADMIN_PROJECT_ID || undefined;
+  if (!getApps().length) initializeApp({ credential: firebaseCredential(), projectId });
   const db = getFirestore();
   let pool;
   const api = new Api();

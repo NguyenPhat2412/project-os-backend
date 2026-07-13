@@ -15,11 +15,12 @@ class GoogleOAuthConfiguration {
     @ConditionalOnExpression("'${app.google.client-id:}' != '' and '${app.google.client-secret:}' != ''")
     ClientRegistrationRepository googleClientRegistration(
             @Value("${app.google.client-id}") String clientId,
-            @Value("${app.google.client-secret}") String clientSecret) {
+            @Value("${app.google.client-secret}") String clientSecret,
+            @Value("${app.google.redirect-uri}") String redirectUri) {
         ClientRegistration google = CommonOAuth2Provider.GOOGLE.getBuilder("google")
                 .clientId(clientId)
                 .clientSecret(clientSecret)
-                .redirectUri("{baseUrl}/api/v1/login/oauth2/code/{registrationId}")
+                .redirectUri(redirectUri)
                 .scope("openid", "profile", "email")
                 .build();
         return new InMemoryClientRegistrationRepository(google);

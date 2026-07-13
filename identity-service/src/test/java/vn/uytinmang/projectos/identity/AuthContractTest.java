@@ -43,6 +43,7 @@ class AuthContractTest {
         registry.add("app.cookie.secure", () -> false);
         registry.add("app.google.client-id", () -> "test-google-client-id");
         registry.add("app.google.client-secret", () -> "test-google-client-secret");
+        registry.add("app.google.redirect-uri", () -> "http://localhost:3000/api/v1/login/oauth2/code/google");
     }
 
     @Autowired MockMvc mvc;
@@ -78,7 +79,9 @@ class AuthContractTest {
     void googleLoginStartsAuthorizationCodeFlow() throws Exception {
         mvc.perform(get("/api/v1/oauth2/authorization/google"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(header().string("Location", org.hamcrest.Matchers.containsString("accounts.google.com")));
+                .andExpect(header().string("Location", org.hamcrest.Matchers.allOf(
+                        org.hamcrest.Matchers.containsString("accounts.google.com"),
+                        org.hamcrest.Matchers.containsString("localhost:3000/api/v1/login/oauth2/code/google"))));
     }
 
     @Test

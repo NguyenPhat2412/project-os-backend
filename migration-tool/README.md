@@ -2,7 +2,8 @@
 
 The tool is dry-run by default. It reads Firestore, reports counts, and performs no PostgreSQL or API writes.
 
-1. Copy `.env.example` to a secret file outside the repository and load those variables in the shell.
+1. Copy `.env.example` to a secret file outside the repository and load those variables in the shell. Use either
+   `GOOGLE_APPLICATION_CREDENTIALS` or the three existing Firebase Admin variables; never commit their values.
 2. Run `npm ci`.
 3. Run `npm run dry-run` and review `migration-report.json`.
 4. During the approved write freeze, run `npm run migrate`.
