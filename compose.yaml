@@ -102,6 +102,9 @@ services:
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:3000/api/v1/login/oauth2/code/google}
       GOOGLE_OAUTH_SUCCESS_URL: ${GOOGLE_OAUTH_SUCCESS_URL:-http://localhost:3000/projects}
       DB_POOL_SIZE: 5
+      OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-1.0}
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
       interval: 10s
@@ -123,6 +126,9 @@ services:
       PROJECT_SERVICE_URL: http://127.0.0.1:8082
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
       DB_POOL_SIZE: 5
+      OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-1.0}
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
       interval: 10s
@@ -144,6 +150,9 @@ services:
       PROJECT_SERVICE_URL: http://project-service:8082
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
       DB_POOL_SIZE: 5
+      OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-1.0}
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
       interval: 10s
@@ -163,6 +172,9 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
       DB_POOL_SIZE: 5
+      OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-1.0}
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
       interval: 10s
@@ -184,6 +196,8 @@ services:
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
       DB_POOL_SIZE: 5
       OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-1.0}
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     depends_on:
       postgres: { condition: service_healthy }
       organization-service: { condition: service_healthy }
@@ -208,6 +222,9 @@ services:
       PROJECT_SERVICE_URL: http://project-service:8082
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
       DB_POOL_SIZE: 5
+      OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-1.0}
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health"]
       interval: 10s
@@ -233,6 +250,9 @@ services:
       PROJECT_SERVICE_URL: http://project-service:8082
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
       DB_POOL_SIZE: 5
+      OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-1.0}
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
       interval: 10s
@@ -253,6 +273,9 @@ services:
       PROJECT_SERVICE_URL: http://project-service:8082
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
       DB_POOL_SIZE: 5
+      OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-1.0}
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8086/actuator/health"]
       interval: 10s

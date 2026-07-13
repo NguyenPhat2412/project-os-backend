@@ -35,7 +35,7 @@ class AuthService {
         return new Session(UserView.from(user), tokens.issue(user));
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     Session login(AuthController.LoginRequest request) {
         UserAccount user = users.findByEmail(normalize(request.email()))
                 .orElseThrow(() -> invalidCredentials());

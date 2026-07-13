@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        module: [identity-service, project-service, work-service, operations-service, knowledge-service, activity-service, api-gateway]
+        module: [identity-service, organization-service, attendance-service, project-service, work-service, operations-service, knowledge-service, activity-service, api-gateway]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

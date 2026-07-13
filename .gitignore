@@ -26,6 +26,7 @@ logs/
 *.pid
 node_modules/
 migration-report*.json
+qa/evidence/
 
 ### Local API clients ###
 /postman/

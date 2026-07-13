@@ -1,5 +1,6 @@
 package vn.uytinmang.projectos.identity;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -11,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import jakarta.servlet.http.Cookie;
 import java.util.Arrays;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -20,6 +22,7 @@ import org.springframework.mock.web.MockCookie;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import vn.uytinmang.projectos.identity.user.UserAccountRepository;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
@@ -73,6 +76,32 @@ class AuthContractTest {
         mvc.perform(post("/api/v1/auth/refresh")
                         .cookie(new MockCookie("PROJECT_OS_REFRESH", "invalid")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void passwordLoginPersistsRefreshTokenAndAllowsRotation() throws Exception {
+        String email = "refresh-login-" + UUID.randomUUID() + "@example.test";
+        String password = "Password123!";
+        mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + email + "\",\"password\":\"" + password
+                                + "\",\"displayName\":\"Refresh Login\"}"))
+                .andExpect(status().isCreated());
+
+        MvcResult login = mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + email + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        Cookie refresh = login.getResponse().getCookie("PROJECT_OS_REFRESH");
+        Cookie csrf = login.getResponse().getCookie("XSRF-TOKEN");
+        assertThat(refresh).isNotNull();
+        assertThat(csrf).isNotNull();
+
+        mvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(refresh, csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie()
+                        .exists("PROJECT_OS_REFRESH"));
     }
 
     @Test

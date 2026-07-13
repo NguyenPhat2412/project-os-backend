@@ -20,11 +20,14 @@ jobs:
       - name: Configure SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
           install -m 700 -d ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          test -s ~/.ssh/known_hosts
       - name: Deploy ProjectOS only
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -32,4 +35,4 @@ jobs:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           DEPLOY_REF: ${{ inputs.ref }}
         run: |
-          ssh "$DEPLOY_USER@$DEPLOY_HOST" "set -eu; cd '$DEPLOY_PATH'; test -z \"\$(git status --porcelain)\"; git fetch origin '$DEPLOY_REF'; git checkout --detach FETCH_HEAD; docker compose --env-file .env.production -f compose.yaml -f compose.prod.yaml up -d --build; docker compose -f compose.yaml ps"
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "set -eu; cd '$DEPLOY_PATH'; test -z \"\$(git status --porcelain)\"; git rev-parse HEAD > .previous-deploy-ref; PROJECT_OS_ENV_FILE='$DEPLOY_PATH/.env.production' ./deploy/backup/backup-project-os.sh; git fetch origin '$DEPLOY_REF'; git checkout --detach FETCH_HEAD; docker compose --env-file .env.production -f compose.yaml -f compose.prod.yaml up -d --build --wait; curl -fsS http://127.0.0.1:18080/actuator/health; docker compose -f compose.yaml ps"
