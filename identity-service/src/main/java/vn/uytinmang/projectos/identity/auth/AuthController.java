@@ -12,6 +12,8 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -26,11 +28,14 @@ public class AuthController {
     private final AuthService auth;
     private final TokenService tokens;
     private final AuthCookieService cookies;
+    private final ObjectProvider<ClientRegistrationRepository> registrations;
 
-    public AuthController(AuthService auth, TokenService tokens, AuthCookieService cookies) {
+    public AuthController(AuthService auth, TokenService tokens, AuthCookieService cookies,
+                          ObjectProvider<ClientRegistrationRepository> registrations) {
         this.auth = auth;
         this.tokens = tokens;
         this.cookies = cookies;
+        this.registrations = registrations;
     }
 
     @PostMapping("/register")
@@ -64,6 +69,11 @@ public class AuthController {
         return ApiResponse.of(auth.me(UUID.fromString(jwt.getClaimAsString("uid"))));
     }
 
+    @GetMapping("/providers")
+    ApiResponse<ProviderView> providers() {
+        return ApiResponse.of(new ProviderView(registrations.getIfAvailable() != null));
+    }
+
     private ApiResponse<AuthView> session(AuthService.Session session, HttpServletResponse response) {
         cookies.write(response, session.tokens());
         return ApiResponse.of(new AuthView(session.user(), session.tokens().accessMaxAge()));
@@ -85,4 +95,5 @@ public class AuthController {
 
     public record AuthView(AuthService.UserView user, long expiresIn) {
     }
+    public record ProviderView(boolean google) {}
 }

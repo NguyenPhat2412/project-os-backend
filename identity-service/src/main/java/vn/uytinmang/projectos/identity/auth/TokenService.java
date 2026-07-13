@@ -8,6 +8,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
@@ -39,20 +40,27 @@ public class TokenService {
 
     @Transactional
     public SessionTokens issue(UserAccount user) {
+        return issue(user, UUID.randomUUID());
+    }
+
+    private SessionTokens issue(UserAccount user, UUID familyId) {
         String rawRefresh = randomToken();
-        refreshTokens.save(new RefreshToken(hash(rawRefresh), user, Instant.now().plus(refreshTtl)));
+        refreshTokens.save(new RefreshToken(hash(rawRefresh), familyId, user, Instant.now().plus(refreshTtl)));
         return new SessionTokens(access(user), rawRefresh, accessTtl.toSeconds(), refreshTtl.toSeconds());
     }
 
     @Transactional
     public RotatedSession rotate(String rawRefresh) {
-        RefreshToken current = refreshTokens.findByTokenHash(hash(rawRefresh))
+        RefreshToken current = refreshTokens.lockByTokenHash(hash(rawRefresh))
                 .orElseThrow(() -> invalidRefresh());
-        if (current.getRevokedAt() != null || current.getExpiresAt().isBefore(Instant.now())) {
+        if (current.getRevokedAt() != null) {
+            refreshTokens.revokeFamily(current.getFamilyId(), Instant.now());
             throw invalidRefresh();
         }
+        if (current.getExpiresAt().isBefore(Instant.now())) throw invalidRefresh();
+        if (current.getUser().getStatus() != UserAccount.Status.ACTIVE) throw invalidRefresh();
         current.revoke();
-        return new RotatedSession(current.getUser(), issue(current.getUser()));
+        return new RotatedSession(current.getUser(), issue(current.getUser(), current.getFamilyId()));
     }
 
     @Transactional
@@ -61,6 +69,11 @@ public class TokenService {
         refreshTokens.findByTokenHash(hash(rawRefresh)).ifPresent(token -> {
             if (token.getRevokedAt() == null) token.revoke();
         });
+    }
+
+    @Transactional
+    public void revokeAll(UUID userId) {
+        refreshTokens.revokeAll(userId, Instant.now());
     }
 
     private String access(UserAccount user) {

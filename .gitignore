@@ -24,9 +24,11 @@ replay_pid*
 *.log
 logs/
 *.pid
+node_modules/
+migration-report*.json
 
 ### Local API clients ###
-postman/
+/postman/
 docs/POSTMAN.md
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/

@@ -7,6 +7,10 @@
 !resource-service-core/**
 !identity-service/
 !identity-service/**
+!organization-service/
+!organization-service/**
+!attendance-service/
+!attendance-service/**
 !project-service/
 !project-service/**
 !work-service/

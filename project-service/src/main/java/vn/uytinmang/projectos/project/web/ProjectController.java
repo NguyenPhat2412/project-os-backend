@@ -39,8 +39,10 @@ public class ProjectController {
 
     @GetMapping
     PageResponse<ProjectView> list(@RequestParam(defaultValue = "0") int page,
-                                   @RequestParam(defaultValue = "20") int size) {
-        return service.list(page, size);
+                                   @RequestParam(defaultValue = "20") int size,
+                                   @AuthenticationPrincipal Jwt jwt) {
+        return service.list(page, size, UUID.fromString(jwt.getClaimAsString("uid")),
+                "ROOT_ADMIN".equals(jwt.getClaimAsString("role")));
     }
 
     @GetMapping("/{id}")
@@ -55,15 +57,16 @@ public class ProjectController {
     }
 
     @PatchMapping("/{id}")
-    @PreAuthorize("hasRole('ROOT_ADMIN')")
-    ApiResponse<ProjectView> update(@PathVariable UUID id, @Valid @RequestBody ProjectPatch request) {
-        return ApiResponse.of(service.update(id, request));
+    ApiResponse<ProjectView> update(@PathVariable UUID id, @Valid @RequestBody ProjectPatch request,
+                                    @AuthenticationPrincipal Jwt jwt) {
+        return ApiResponse.of(service.update(id, request, UUID.fromString(jwt.getClaimAsString("uid"))));
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasRole('ROOT_ADMIN')")
-    void delete(@PathVariable UUID id) { service.delete(id); }
+    void delete(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) {
+        service.delete(id, UUID.fromString(jwt.getClaimAsString("uid")));
+    }
 
     public record ProjectRequest(@NotBlank @Size(max = 150) String name,
                                  @Size(max = 5000) String description,
@@ -73,7 +76,10 @@ public class ProjectController {
                                  @Size(max = 30) String quarter,
                                  LocalDate startDate, LocalDate endDate,
                                  List<@Size(max = 100) String> techStack,
-                                 @Min(0) Integer teamSize) {
+                                 @Min(0) Integer teamSize,
+                                 UUID ownerId,
+                                 UUID organizationId,
+                                 @Size(max = 255) String legacyId) {
     }
 
     public record ProjectPatch(@Size(min = 1, max = 150) String name,
@@ -90,13 +96,13 @@ public class ProjectController {
     public record ProjectView(UUID id, String legacyId, String name, String description, String status,
                               String icon, String color, String currentSprint, String quarter,
                               LocalDate startDate, LocalDate endDate, List<String> techStack,
-                              Integer teamSize, UUID ownerId, Instant createdAt, Instant updatedAt) {
+                              Integer teamSize, UUID ownerId, UUID organizationId, Instant createdAt, Instant updatedAt) {
         public static ProjectView from(Project project) {
             return new ProjectView(project.getId(), project.getLegacyId(), project.getName(),
                     project.getDescription(), project.getStatus().name().toLowerCase(Locale.ROOT),
                     project.getIcon(), project.getColor(), project.getCurrentSprint(), project.getQuarter(),
                     project.getStartDate(), project.getEndDate(), project.getTechStack(), project.getTeamSize(),
-                    project.getOwnerId(), project.getCreatedAt(), project.getUpdatedAt());
+                    project.getOwnerId(), project.getOrganizationId(), project.getCreatedAt(), project.getUpdatedAt());
         }
     }
 }

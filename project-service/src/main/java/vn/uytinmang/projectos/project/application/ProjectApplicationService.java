@@ -1,5 +1,6 @@
 package vn.uytinmang.projectos.project.application;
 
+import tools.jackson.databind.ObjectMapper;
 import java.util.Locale;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
@@ -12,23 +13,30 @@ import vn.uytinmang.projectos.platform.api.PageResponse;
 import vn.uytinmang.projectos.project.domain.Project;
 import vn.uytinmang.projectos.project.domain.ProjectRepository;
 import vn.uytinmang.projectos.project.web.ProjectController;
+import vn.uytinmang.projectos.resource.OutboxPublisher;
 
 @Service
 public class ProjectApplicationService {
     private final ProjectRepository projects;
+    private final OutboxPublisher outbox;
+    private final ObjectMapper mapper;
 
-    public ProjectApplicationService(ProjectRepository projects) {
+    public ProjectApplicationService(ProjectRepository projects, OutboxPublisher outbox, ObjectMapper mapper) {
         this.projects = projects;
+        this.outbox = outbox;
+        this.mapper = mapper;
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<ProjectController.ProjectView> list(int page, int size) {
+    public PageResponse<ProjectController.ProjectView> list(int page, int size, UUID actorId, boolean rootAdmin) {
         if (page < 0 || size < 1 || size > 100) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_pagination",
                     "page must be >= 0 and size must be between 1 and 100");
         }
-        var result = projects.findAll(PageRequest.of(page, size,
-                Sort.by(Sort.Direction.DESC, "updatedAt"))).map(ProjectController.ProjectView::from);
+        var pageable = PageRequest.of(page, size);
+        var result = (rootAdmin
+                ? projects.findAll(PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "updatedAt")))
+                : projects.findAccessible(actorId, pageable)).map(ProjectController.ProjectView::from);
         return PageResponse.of(result.getContent(), result.getNumber(), result.getSize(),
                 result.getTotalElements(), result.getTotalPages());
     }
@@ -40,27 +48,40 @@ public class ProjectApplicationService {
 
     @Transactional
     public ProjectController.ProjectView create(ProjectController.ProjectRequest request, UUID ownerId) {
+        String legacyId = clean(request.legacyId());
+        if (legacyId != null && projects.findByLegacyId(legacyId).isPresent()) {
+            throw new ApiException(HttpStatus.CONFLICT, "legacy_id_exists", "Legacy project ID already exists");
+        }
+        UUID effectiveOwnerId = request.ownerId() == null ? ownerId : request.ownerId();
         Project project = new Project(request.name().trim(), clean(request.description()),
                 status(request.status(), Project.Status.ACTIVE), defaulted(request.icon(), "P"),
                 defaulted(request.color(), "from-violet-500 to-purple-600"), clean(request.currentSprint()),
                 clean(request.quarter()), request.startDate(), request.endDate(), request.techStack(),
-                request.teamSize(), ownerId);
-        return ProjectController.ProjectView.from(projects.save(project));
+                request.teamSize(), effectiveOwnerId, request.organizationId());
+        project.setLegacyId(legacyId);
+        ProjectController.ProjectView view = ProjectController.ProjectView.from(projects.save(project));
+        outbox.record(view.id(), "projects", view.id().toString(), "created", mapper.valueToTree(view), ownerId);
+        return view;
     }
 
     @Transactional
-    public ProjectController.ProjectView update(UUID id, ProjectController.ProjectPatch request) {
+    public ProjectController.ProjectView update(UUID id, ProjectController.ProjectPatch request, UUID actorId) {
         Project project = find(id);
         project.update(trimmed(request.name()), clean(request.description()), status(request.status(), null),
                 trimmed(request.icon()), trimmed(request.color()), clean(request.currentSprint()),
                 clean(request.quarter()), request.startDate(), request.endDate(), request.techStack(),
                 request.teamSize());
-        return ProjectController.ProjectView.from(project);
+        ProjectController.ProjectView view = ProjectController.ProjectView.from(project);
+        outbox.record(id, "projects", id.toString(), "updated", mapper.valueToTree(view), actorId);
+        return view;
     }
 
     @Transactional
-    public void delete(UUID id) {
-        projects.delete(find(id));
+    public void delete(UUID id, UUID actorId) {
+        Project project = find(id);
+        ProjectController.ProjectView view = ProjectController.ProjectView.from(project);
+        outbox.record(id, "projects", id.toString(), "deleted", mapper.valueToTree(view), actorId);
+        projects.delete(project);
     }
 
     private Project find(UUID id) {

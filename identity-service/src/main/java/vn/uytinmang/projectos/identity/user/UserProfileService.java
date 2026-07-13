@@ -122,7 +122,7 @@ class UserProfileService {
     }
 
     private UserAccount user(UUID userId) {
-        return users.findById(userId).orElseThrow(() ->
+        return users.findById(userId).filter(user -> user.getStatus() == UserAccount.Status.ACTIVE).orElseThrow(() ->
                 new ApiException(HttpStatus.UNAUTHORIZED, "user_missing", "User no longer exists"));
     }
 

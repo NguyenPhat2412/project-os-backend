@@ -36,6 +36,7 @@ public class Project {
     private List<String> techStack = new ArrayList<>();
     @Column(name = "team_size") private Integer teamSize;
     @Column(name = "owner_id", nullable = false) private UUID ownerId;
+    @Column(name = "organization_id") private UUID organizationId;
     @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt;
     @Column(name = "updated_at", nullable = false) private Instant updatedAt;
 
@@ -44,7 +45,7 @@ public class Project {
 
     public Project(String name, String description, Status status, String icon, String color,
                    String currentSprint, String quarter, LocalDate startDate, LocalDate endDate,
-                   List<String> techStack, Integer teamSize, UUID ownerId) {
+                   List<String> techStack, Integer teamSize, UUID ownerId, UUID organizationId) {
         this.name = name;
         this.description = description;
         this.status = status;
@@ -57,6 +58,7 @@ public class Project {
         this.techStack = techStack == null ? new ArrayList<>() : new ArrayList<>(techStack);
         this.teamSize = teamSize;
         this.ownerId = ownerId;
+        this.organizationId = organizationId;
     }
 
     @PrePersist void create() {
@@ -83,6 +85,8 @@ public class Project {
         if (teamSize != null) this.teamSize = teamSize;
     }
 
+    public void setLegacyId(String legacyId) { this.legacyId = legacyId; }
+
     public UUID getId() { return id; }
     public String getLegacyId() { return legacyId; }
     public String getName() { return name; }
@@ -97,6 +101,7 @@ public class Project {
     public List<String> getTechStack() { return List.copyOf(techStack); }
     public Integer getTeamSize() { return teamSize; }
     public UUID getOwnerId() { return ownerId; }
+    public UUID getOrganizationId() { return organizationId; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

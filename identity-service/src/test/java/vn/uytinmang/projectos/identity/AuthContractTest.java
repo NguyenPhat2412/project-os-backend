@@ -1,6 +1,7 @@
 package vn.uytinmang.projectos.identity;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -19,6 +20,9 @@ import org.springframework.mock.web.MockCookie;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import vn.uytinmang.projectos.identity.user.UserAccountRepository;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -42,6 +46,7 @@ class AuthContractTest {
     }
 
     @Autowired MockMvc mvc;
+    @Autowired UserAccountRepository users;
 
     @Test
     void registerAndLoginIssueHttpOnlyCookies() throws Exception {
@@ -74,6 +79,13 @@ class AuthContractTest {
         mvc.perform(get("/api/v1/oauth2/authorization/google"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(header().string("Location", org.hamcrest.Matchers.containsString("accounts.google.com")));
+    }
+
+    @Test
+    void providerStatusLetsFrontendHideUnavailableOAuthButtons() throws Exception {
+        mvc.perform(get("/api/v1/auth/providers"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.google").value(true));
     }
 
     @Test
@@ -114,6 +126,77 @@ class AuthContractTest {
                 .andExpect(status().isUnauthorized());
         mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"" + email + "\",\"password\":\"ChangedPass456!\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void rootAdminCanManageUsersAndDisableLogin() throws Exception {
+        var adminId = java.util.UUID.randomUUID();
+        var admin = jwt().jwt(token -> token.claim("uid", adminId.toString()).claim("role", "ROOT_ADMIN"))
+                .authorities(new SimpleGrantedAuthority("ROLE_ROOT_ADMIN"));
+
+        mvc.perform(post("/api/v1/admin/users").with(admin).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"managed@example.com\",\"password\":\"StrongPass123!\","
+                                + "\"displayName\":\"Managed User\",\"role\":\"USER\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+
+        var managed = users.findByEmail("managed@example.com").orElseThrow();
+        mvc.perform(patch("/api/v1/admin/users/" + managed.getId()).with(admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role\":\"ROOT_ADMIN\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.role").value("ROOT_ADMIN"));
+
+        mvc.perform(get("/api/v1/admin/users?search=managed").with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.total").value(1));
+
+        mvc.perform(delete("/api/v1/admin/users/" + managed.getId()).with(admin))
+                .andExpect(status().isNoContent());
+        mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"managed@example.com\",\"password\":\"StrongPass123!\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void authenticatedUsersCanReadOnlyActiveDirectoryEntries() throws Exception {
+        var user = jwt().jwt(token -> token.claim("uid", java.util.UUID.randomUUID().toString())
+                .claim("role", "USER")).authorities(new SimpleGrantedAuthority("ROLE_USER"));
+        mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"directory@example.com\",\"password\":\"StrongPass123!\","
+                                + "\"displayName\":\"Directory User\"}"))
+                .andExpect(status().isCreated());
+
+        mvc.perform(get("/api/v1/users/directory?search=directory").with(user))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.total").value(1))
+                .andExpect(jsonPath("$.data[0].email").value("directory@example.com"))
+                .andExpect(jsonPath("$.data[0].role").doesNotExist());
+
+        mvc.perform(get("/api/v1/users/directory"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("unauthorized"))
+                .andExpect(jsonPath("$.error.status").value(401))
+                .andExpect(jsonPath("$.error.path").value("/api/v1/users/directory"))
+                .andExpect(jsonPath("$.error.traceId").isNotEmpty())
+                .andExpect(jsonPath("$.error.timestamp").isNotEmpty());
+    }
+
+    @Test
+    void rootRoleFromIssuedJwtAuthorizesAdminApi() throws Exception {
+        var registered = mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"cookie-root@example.com\",\"password\":\"StrongPass123!\","
+                                + "\"displayName\":\"Cookie Root\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse();
+        var account = users.findByEmail("cookie-root@example.com").orElseThrow();
+        account.setRole(vn.uytinmang.projectos.identity.user.UserAccount.Role.ROOT_ADMIN);
+        users.saveAndFlush(account);
+
+        var login = mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"cookie-root@example.com\",\"password\":\"StrongPass123!\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse();
+        mvc.perform(get("/api/v1/admin/users").cookie(cookie(login.getCookies(), "PROJECT_OS_ACCESS")))
                 .andExpect(status().isOk());
     }
 

@@ -13,10 +13,24 @@ spring:
     hibernate.ddl-auto: validate
     open-in-view: false
     properties.hibernate.default_schema: knowledge
+    properties.hibernate.type.json_format_mapper: jackson3
 management.endpoints.web.exposure.include: health,info
+management.tracing.sampling.probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+management.tracing.export.zipkin.endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}
+springdoc:
+  api-docs.enabled: ${OPENAPI_ENABLED:false}
+  swagger-ui.enabled: ${OPENAPI_ENABLED:false}
 app:
   jwt.secret: ${JWT_SECRET:local-development-jwt-secret-32-characters-minimum}
   resources: folders,documents,wikis,wiki-links,attachments,doc-activities
+  outbox:
+    enabled: ${OUTBOX_ENABLED:true}
+    activity-url: ${ACTIVITY_SERVICE_URL:http://localhost:8086}
+    internal-token: ${INTERNAL_SERVICE_TOKEN:local-internal-service-token-change-me}
+  rbac:
+    enabled: ${RBAC_ENABLED:true}
+    project-service-url: ${PROJECT_SERVICE_URL:http://localhost:8082}
+    internal-token: ${INTERNAL_SERVICE_TOKEN:local-internal-service-token-change-me}
   storage:
     endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
     access-key: ${MINIO_ACCESS_KEY:local-minio}

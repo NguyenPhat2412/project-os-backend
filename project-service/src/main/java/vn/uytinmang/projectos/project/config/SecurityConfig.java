@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -18,6 +19,8 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import vn.uytinmang.projectos.platform.security.CookieBearerTokenResolver;
 import vn.uytinmang.projectos.platform.security.CookieCsrfFilter;
+import vn.uytinmang.projectos.platform.api.ApiSecurityErrorHandler;
+import vn.uytinmang.projectos.resource.ProjectPermissionFilter;
 
 @Configuration
 @EnableMethodSecurity
@@ -29,7 +32,9 @@ class SecurityConfig {
         return NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
     }
 
-    @Bean SecurityFilterChain security(HttpSecurity http, JwtDecoder decoder) throws Exception {
+    @Bean SecurityFilterChain security(HttpSecurity http, JwtDecoder decoder,
+                                       ObjectProvider<ProjectPermissionFilter> permissions,
+                                       ApiSecurityErrorHandler errors) throws Exception {
         JwtGrantedAuthoritiesConverter roles = new JwtGrantedAuthoritiesConverter();
         roles.setAuthoritiesClaimName("role");
         roles.setAuthorityPrefix("ROLE_");
@@ -39,11 +44,16 @@ class SecurityConfig {
                 .addFilterBefore(new CookieCsrfFilter("PROJECT_OS_ACCESS"),
                         BearerTokenAuthenticationFilter.class)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint(errors).accessDeniedHandler(errors))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/actuator/health").permitAll().anyRequest().authenticated())
+                        .requestMatchers("/actuator/health", "/api/v1/internal/**", "/v3/api-docs/**").permitAll()
+                        .anyRequest().authenticated())
                 .oauth2ResourceServer(resource -> resource
                         .bearerTokenResolver(new CookieBearerTokenResolver("PROJECT_OS_ACCESS"))
                         .jwt(jwt -> jwt.decoder(decoder).jwtAuthenticationConverter(converter)));
+        ProjectPermissionFilter filter = permissions.getIfAvailable();
+        if (filter != null) http.addFilterAfter(filter, BearerTokenAuthenticationFilter.class);
         return http.build();
     }
 }

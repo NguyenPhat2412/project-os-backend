@@ -18,10 +18,13 @@ import vn.uytinmang.projectos.platform.api.PageResponse;
 public class ResourceApplicationService {
     private final ResourceRecordRepository records;
     private final ResourceCatalog catalog;
+    private final OutboxPublisher outbox;
 
-    public ResourceApplicationService(ResourceRecordRepository records, ResourceCatalog catalog) {
+    public ResourceApplicationService(ResourceRecordRepository records, ResourceCatalog catalog,
+                                      OutboxPublisher outbox) {
         this.records = records;
         this.catalog = catalog;
+        this.outbox = outbox;
     }
 
     @Transactional(readOnly = true)
@@ -44,6 +47,12 @@ public class ResourceApplicationService {
     }
 
     @Transactional
+    public JsonNode createMutable(UUID projectId, String resource, JsonNode body, UUID actorId) {
+        catalog.requireMutable(resource);
+        return create(projectId, resource, body, actorId);
+    }
+
+    @Transactional
     public JsonNode create(UUID projectId, String resource, JsonNode body, UUID actorId) {
         catalog.require(resource);
         ObjectNode payload = payload(body);
@@ -54,7 +63,9 @@ public class ResourceApplicationService {
                 .isPresent()) {
             throw new ApiException(HttpStatus.CONFLICT, "legacy_id_exists", "Legacy ID already exists");
         }
-        return view(records.save(new ResourceRecord(projectId, resource, legacyId, payload, actorId)));
+        ResourceRecord record = records.save(new ResourceRecord(projectId, resource, legacyId, payload, actorId));
+        outbox.record(record, "created", actorId);
+        return view(record);
     }
 
     @Transactional
@@ -65,31 +76,41 @@ public class ResourceApplicationService {
         ResourceRecord record = findOptional(projectId, resource, externalId).orElseGet(() ->
                 new ResourceRecord(projectId, resource, nonUuid(externalId), payload.deepCopy(), actorId));
         record.replace(payload);
-        return view(records.save(record));
+        record = records.save(record);
+        outbox.record(record, "updated", actorId);
+        return view(record);
     }
 
     @Transactional
-    public JsonNode patch(UUID projectId, String resource, String externalId, JsonNode body) {
+    public JsonNode patch(UUID projectId, String resource, String externalId, JsonNode body, UUID actorId) {
         catalog.requireMutable(resource);
         ResourceRecord record = find(projectId, resource, externalId);
         ObjectNode merged = payload(record.getPayload());
         ObjectNode patch = payload(body);
         patch.remove(List.of("id", "uuid", "legacyId", "projectId", "createdAt", "updatedAt"));
         for (Map.Entry<String, JsonNode> field : patch.properties()) {
-            merged.set(field.getKey(), field.getValue());
+            JsonNode value = field.getValue();
+            if (value == null || value.isNull() || isLegacyDeleteField(value)) {
+                merged.remove(field.getKey());
+            } else {
+                merged.set(field.getKey(), value);
+            }
         }
         record.replace(merged);
+        outbox.record(record, "updated", actorId);
         return view(record);
     }
 
     @Transactional
-    public void delete(UUID projectId, String resource, String externalId) {
+    public void delete(UUID projectId, String resource, String externalId, UUID actorId) {
         catalog.requireMutable(resource);
-        records.delete(find(projectId, resource, externalId));
+        ResourceRecord record = find(projectId, resource, externalId);
+        outbox.record(record, "deleted", actorId);
+        records.delete(record);
     }
 
     @Transactional
-    public List<JsonNode> reorder(UUID projectId, String resource, JsonNode body) {
+    public List<JsonNode> reorder(UUID projectId, String resource, JsonNode body, UUID actorId) {
         catalog.requireMutable(resource);
         if (!body.isArray()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_reorder", "Expected an array of updates");
@@ -104,6 +125,7 @@ public class ResourceApplicationService {
             if (update.has("order")) merged.set("order", update.get("order"));
             if (update.has("status")) merged.set("status", update.get("status"));
             record.replace(merged);
+            outbox.record(record, "reordered", actorId);
             result.add(view(record));
         }
         return result;
@@ -116,7 +138,9 @@ public class ResourceApplicationService {
 
     private java.util.Optional<ResourceRecord> findOptional(UUID projectId, String resource, String externalId) {
         try {
-            return records.findByProjectIdAndResourceTypeAndId(projectId, resource, UUID.fromString(externalId));
+            var byId = records.findByProjectIdAndResourceTypeAndId(projectId, resource, UUID.fromString(externalId));
+            return byId.isPresent() ? byId
+                    : records.findByProjectIdAndResourceTypeAndLegacyId(projectId, resource, externalId);
         } catch (IllegalArgumentException ignored) {
             return records.findByProjectIdAndResourceTypeAndLegacyId(projectId, resource, externalId);
         }
@@ -154,5 +178,9 @@ public class ResourceApplicationService {
         } catch (IllegalArgumentException ignored) {
             return value;
         }
+    }
+
+    private boolean isLegacyDeleteField(JsonNode value) {
+        return value.isObject() && "deleteField".equals(value.path("_methodName").asText());
     }
 }

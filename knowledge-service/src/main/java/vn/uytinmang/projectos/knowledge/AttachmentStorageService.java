@@ -29,8 +29,8 @@ class AttachmentStorageService {
         this.bucket = bucket;
     }
 
-    AttachmentView upload(String storagePath, MultipartFile file) {
-        validate(storagePath, file);
+    AttachmentView upload(UUID projectId, String storagePath, MultipartFile file) {
+        validate(projectId, storagePath, file);
         String safeName = file.getOriginalFilename().replaceAll("[^a-zA-Z0-9._-]", "_");
         String objectName = storagePath.replaceAll("/+$", "") + "/" + UUID.randomUUID() + "_" + safeName;
         String contentType = file.getContentType() == null ? "application/octet-stream" : file.getContentType();
@@ -38,7 +38,7 @@ class AttachmentStorageService {
             ensureBucket();
             minio.putObject(PutObjectArgs.builder().bucket(bucket).object(objectName)
                     .contentType(contentType).stream(input, file.getSize(), -1L).build());
-            String url = "/api/v1/storage/attachments/content?storagePath="
+            String url = "/api/v1/projects/" + projectId + "/attachments/content?storagePath="
                     + URLEncoder.encode(objectName, StandardCharsets.UTF_8);
             return new AttachmentView(file.getOriginalFilename(), url, objectName, file.getSize(), contentType,
                     LocalDate.now().toString());
@@ -47,8 +47,8 @@ class AttachmentStorageService {
         }
     }
 
-    StoredObject download(String storagePath) {
-        validatePath(storagePath);
+    StoredObject download(UUID projectId, String storagePath) {
+        validateProjectPath(projectId, storagePath);
         try {
             var stat = minio.statObject(StatObjectArgs.builder().bucket(bucket).object(storagePath).build());
             try (InputStream input = minio.getObject(GetObjectArgs.builder().bucket(bucket).object(storagePath).build())) {
@@ -59,8 +59,8 @@ class AttachmentStorageService {
         }
     }
 
-    void delete(String storagePath) {
-        validatePath(storagePath);
+    void delete(UUID projectId, String storagePath) {
+        validateProjectPath(projectId, storagePath);
         try {
             minio.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(storagePath).build());
         } catch (Exception exception) {
@@ -74,8 +74,8 @@ class AttachmentStorageService {
         }
     }
 
-    private void validate(String storagePath, MultipartFile file) {
-        validatePath(storagePath);
+    private void validate(UUID projectId, String storagePath, MultipartFile file) {
+        validateProjectPath(projectId, storagePath);
         if (file.isEmpty()) throw new ApiException(HttpStatus.BAD_REQUEST, "empty_file", "File is empty");
         if (file.getSize() > MAX_SIZE) {
             throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "file_too_large", "Maximum file size is 20 MB");
@@ -89,6 +89,13 @@ class AttachmentStorageService {
         if (storagePath == null || !storagePath.startsWith("projects/") || storagePath.contains("..")
                 || storagePath.contains("\\")) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_storage_path", "Invalid storage path");
+        }
+    }
+
+    private void validateProjectPath(UUID projectId, String storagePath) {
+        validatePath(storagePath);
+        if (!storagePath.startsWith("projects/" + projectId + "/")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_storage_path", "Storage path is outside the project");
         }
     }
 

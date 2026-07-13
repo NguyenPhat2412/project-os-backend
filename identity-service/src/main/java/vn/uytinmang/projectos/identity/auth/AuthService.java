@@ -15,11 +15,13 @@ class AuthService {
     private final UserAccountRepository users;
     private final PasswordEncoder passwords;
     private final TokenService tokens;
+    private final OAuthIdentityRepository identities;
 
-    AuthService(UserAccountRepository users, PasswordEncoder passwords, TokenService tokens) {
+    AuthService(UserAccountRepository users, PasswordEncoder passwords, TokenService tokens, OAuthIdentityRepository identities) {
         this.users = users;
         this.passwords = passwords;
         this.tokens = tokens;
+        this.identities = identities;
     }
 
     @Transactional
@@ -37,6 +39,7 @@ class AuthService {
     Session login(AuthController.LoginRequest request) {
         UserAccount user = users.findByEmail(normalize(request.email()))
                 .orElseThrow(() -> invalidCredentials());
+        if (user.getStatus() != UserAccount.Status.ACTIVE) throw invalidCredentials();
         if (user.getPasswordHash() == null || !passwords.matches(request.password(), user.getPasswordHash())) {
             throw invalidCredentials();
         }
@@ -44,10 +47,17 @@ class AuthService {
     }
 
     @Transactional
-    Session google(String emailAddress, String displayName, String avatarUrl) {
+    Session google(String providerSubject, String emailAddress, String displayName, String avatarUrl) {
         String email = normalize(emailAddress);
-        UserAccount user = users.findByEmail(email).orElseGet(() -> users.save(new UserAccount(email, null,
-                displayName.trim(), UserAccount.Role.USER)));
+        UserAccount user = identities.findByProviderAndProviderSubject("GOOGLE", providerSubject)
+                .map(OAuthIdentity::getUser)
+                .orElseGet(() -> {
+                    UserAccount linked = users.findByEmail(email).orElseGet(() -> users.save(new UserAccount(email, null,
+                            displayName.trim(), UserAccount.Role.USER)));
+                    identities.save(new OAuthIdentity(linked, "GOOGLE", providerSubject));
+                    return linked;
+                });
+        if (user.getStatus() != UserAccount.Status.ACTIVE) throw invalidCredentials();
         String nextName = displayName == null || displayName.isBlank() ? user.getDisplayName() : displayName.trim();
         String nextAvatar = avatarUrl == null || avatarUrl.isBlank() ? user.getAvatarUrl() : avatarUrl;
         user.updateProfile(nextName, nextAvatar);
@@ -56,7 +66,7 @@ class AuthService {
 
     @Transactional(readOnly = true)
     UserView me(UUID id) {
-        return users.findById(id).map(UserView::from)
+        return users.findById(id).filter(user -> user.getStatus() == UserAccount.Status.ACTIVE).map(UserView::from)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "user_missing", "User no longer exists"));
     }
 

@@ -47,7 +47,7 @@ public class ResourceController {
     @ResponseStatus(HttpStatus.CREATED)
     ApiResponse<JsonNode> create(@PathVariable UUID projectId, @PathVariable String resource,
                                  @RequestBody JsonNode body, @AuthenticationPrincipal Jwt jwt) {
-        return ApiResponse.of(resources.create(projectId, resource, body, actor(jwt)));
+        return ApiResponse.of(resources.createMutable(projectId, resource, body, actor(jwt)));
     }
 
     @PutMapping("/{resource}/{id}")
@@ -59,20 +59,22 @@ public class ResourceController {
 
     @PatchMapping("/{resource}/{id}")
     ApiResponse<JsonNode> patch(@PathVariable UUID projectId, @PathVariable String resource,
-                                @PathVariable String id, @RequestBody JsonNode body) {
-        return ApiResponse.of(resources.patch(projectId, resource, id, body));
+                                @PathVariable String id, @RequestBody JsonNode body,
+                                @AuthenticationPrincipal Jwt jwt) {
+        return ApiResponse.of(resources.patch(projectId, resource, id, body, actor(jwt)));
     }
 
     @DeleteMapping("/{resource}/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    void delete(@PathVariable UUID projectId, @PathVariable String resource, @PathVariable String id) {
-        resources.delete(projectId, resource, id);
+    void delete(@PathVariable UUID projectId, @PathVariable String resource, @PathVariable String id,
+                @AuthenticationPrincipal Jwt jwt) {
+        resources.delete(projectId, resource, id, actor(jwt));
     }
 
     @PostMapping("/{resource}/reorder")
     ApiResponse<List<JsonNode>> reorder(@PathVariable UUID projectId, @PathVariable String resource,
-                                        @RequestBody JsonNode body) {
-        return ApiResponse.of(resources.reorder(projectId, resource, body));
+                                        @RequestBody JsonNode body, @AuthenticationPrincipal Jwt jwt) {
+        return ApiResponse.of(resources.reorder(projectId, resource, body, actor(jwt)));
     }
 
     @GetMapping("/{parentResource}/{parentId}/comments")
@@ -93,7 +95,7 @@ public class ResourceController {
                                               @AuthenticationPrincipal Jwt jwt) {
         body.put("parentResource", parentResource);
         body.put("parentId", parentId);
-        return ApiResponse.of(resources.create(projectId, nestedResource(parentResource, parentId), body,
+        return ApiResponse.of(resources.createMutable(projectId, nestedResource(parentResource, parentId), body,
                 actor(jwt)));
     }
 
@@ -121,9 +123,10 @@ public class ResourceController {
                                              @PathVariable String parentResource,
                                              @PathVariable String parentId,
                                              @PathVariable String commentId,
-                                             @RequestBody JsonNode body) {
+                                             @RequestBody JsonNode body,
+                                             @AuthenticationPrincipal Jwt jwt) {
         return ApiResponse.of(resources.patch(projectId, nestedResource(parentResource, parentId), commentId,
-                body));
+                body, actor(jwt)));
     }
 
     @DeleteMapping("/{parentResource}/{parentId}/comments/{commentId}")
@@ -131,8 +134,8 @@ public class ResourceController {
     void deleteNestedComment(@PathVariable UUID projectId,
                              @PathVariable String parentResource,
                              @PathVariable String parentId,
-                             @PathVariable String commentId) {
-        resources.delete(projectId, nestedResource(parentResource, parentId), commentId);
+                             @PathVariable String commentId, @AuthenticationPrincipal Jwt jwt) {
+        resources.delete(projectId, nestedResource(parentResource, parentId), commentId, actor(jwt));
     }
 
     private String nestedResource(String parentResource, String parentId) {

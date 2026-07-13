@@ -1,0 +1,10 @@
+[Unit]
+Description=ProjectOS PostgreSQL and MinIO backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/project-os
+EnvironmentFile=/etc/project-os/backup.env
+ExecStart=/opt/project-os/deploy/backup/backup-project-os.sh

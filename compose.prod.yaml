@@ -1,0 +1,91 @@
+# Production override. Run with: docker compose --env-file .env.production -f compose.yaml -f compose.prod.yaml up -d --build
+x-prod-env: &prod-env
+  OPENAPI_ENABLED: "false"
+  TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-0.1}
+
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:?IDENTITY_DB_PASSWORD is required}
+      ORGANIZATION_DB_PASSWORD: ${ORGANIZATION_DB_PASSWORD:?ORGANIZATION_DB_PASSWORD is required}
+      ATTENDANCE_DB_PASSWORD: ${ATTENDANCE_DB_PASSWORD:?ATTENDANCE_DB_PASSWORD is required}
+      PROJECT_DB_PASSWORD: ${PROJECT_DB_PASSWORD:?PROJECT_DB_PASSWORD is required}
+      WORK_DB_PASSWORD: ${WORK_DB_PASSWORD:?WORK_DB_PASSWORD is required}
+      OPERATIONS_DB_PASSWORD: ${OPERATIONS_DB_PASSWORD:?OPERATIONS_DB_PASSWORD is required}
+      KNOWLEDGE_DB_PASSWORD: ${KNOWLEDGE_DB_PASSWORD:?KNOWLEDGE_DB_PASSWORD is required}
+      ACTIVITY_DB_PASSWORD: ${ACTIVITY_DB_PASSWORD:?ACTIVITY_DB_PASSWORD is required}
+
+  redis:
+    ports: []
+
+  zipkin:
+    ports: []
+
+  minio:
+    profiles: []
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+
+  identity-service:
+    environment:
+      <<: *prod-env
+      COOKIE_SECURE: "true"
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:?IDENTITY_DB_PASSWORD is required}
+      GOOGLE_OAUTH_SUCCESS_URL: ${GOOGLE_OAUTH_SUCCESS_URL:?GOOGLE_OAUTH_SUCCESS_URL is required}
+
+  organization-service:
+    environment:
+      <<: *prod-env
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      ORGANIZATION_DB_PASSWORD: ${ORGANIZATION_DB_PASSWORD:?ORGANIZATION_DB_PASSWORD is required}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}
+
+  attendance-service:
+    environment:
+      <<: *prod-env
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      ATTENDANCE_DB_PASSWORD: ${ATTENDANCE_DB_PASSWORD:?ATTENDANCE_DB_PASSWORD is required}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}
+
+  project-service:
+    environment:
+      <<: *prod-env
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      PROJECT_DB_PASSWORD: ${PROJECT_DB_PASSWORD:?PROJECT_DB_PASSWORD is required}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}
+
+  work-service:
+    environment:
+      <<: *prod-env
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      WORK_DB_PASSWORD: ${WORK_DB_PASSWORD:?WORK_DB_PASSWORD is required}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}
+
+  operations-service:
+    environment:
+      <<: *prod-env
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      OPERATIONS_DB_PASSWORD: ${OPERATIONS_DB_PASSWORD:?OPERATIONS_DB_PASSWORD is required}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}
+
+  knowledge-service:
+    environment:
+      <<: *prod-env
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      KNOWLEDGE_DB_PASSWORD: ${KNOWLEDGE_DB_PASSWORD:?KNOWLEDGE_DB_PASSWORD is required}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}
+
+  activity-service:
+    environment:
+      <<: *prod-env
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      ACTIVITY_DB_PASSWORD: ${ACTIVITY_DB_PASSWORD:?ACTIVITY_DB_PASSWORD is required}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}
+
+  api-gateway:
+    environment:
+      <<: *prod-env
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}

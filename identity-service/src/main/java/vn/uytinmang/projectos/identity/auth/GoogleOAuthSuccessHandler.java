@@ -34,8 +34,10 @@ public class GoogleOAuthSuccessHandler implements AuthenticationSuccessHandler {
         String email = principal.getAttribute("email");
         String name = principal.getAttribute("name");
         String picture = principal.getAttribute("picture");
+        String subject = principal.getAttribute("sub");
         if (email == null || email.isBlank()) throw new ServletException("Google account did not provide an email");
-        AuthService.Session session = auth.google(email, name == null ? email : name, picture);
+        if (subject == null || subject.isBlank()) throw new ServletException("Google account did not provide a subject");
+        AuthService.Session session = auth.google(subject, email, name == null ? email : name, picture);
         cookies.write(response, session.tokens());
         response.sendRedirect(successUrl);
     }

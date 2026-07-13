@@ -3,6 +3,7 @@ package vn.uytinmang.projectos.project;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -20,6 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import vn.uytinmang.projectos.project.domain.ProjectRepository;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -34,9 +36,12 @@ class ProjectContractTest {
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("app.jwt.secret", () -> "test-secret-that-is-at-least-32-bytes-long");
+        registry.add("app.outbox.enabled", () -> false);
+        registry.add("app.rbac.enabled", () -> false);
     }
 
     @Autowired MockMvc mvc;
+    @Autowired ProjectRepository projects;
 
     @Test
     void projectCrudUsesEnvelopeAndRbac() throws Exception {
@@ -55,10 +60,31 @@ class ProjectContractTest {
                 .andExpect(jsonPath("$.data.name").value("PostgreSQL Project"))
                 .andExpect(jsonPath("$.data.ownerId").value(actorId.toString()));
 
+        UUID projectId = projects.findAll().getFirst().getId();
+        mvc.perform(put("/api/v1/projects/" + projectId + "/settings/dashboard").with(admin)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"layout\":\"compact\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.layout").value("compact"));
+        mvc.perform(put("/api/v1/projects/" + projectId + "/members/" + actorId).with(admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"memberId\":\"" + actorId + "\",\"roles\":[\"Developer\"]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.roles[0]").value("Developer"));
+        mvc.perform(put("/api/v1/projects/" + projectId + "/roles/developer").with(admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Developer\",\"permissions\":[\"tasks:read\",\"tasks:update\"]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.name").value("Developer"));
+
         mvc.perform(get("/api/v1/projects").with(user))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].status").value("active"))
                 .andExpect(jsonPath("$.meta.total").value(1));
+
+        var outsider = jwt().jwt(token -> token.claim("uid", UUID.randomUUID().toString())
+                        .claim("role", "USER"))
+                .authorities(new SimpleGrantedAuthority("ROLE_USER"));
+        mvc.perform(get("/api/v1/projects").with(outsider))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isEmpty())
+                .andExpect(jsonPath("$.meta.total").value(0));
 
         mvc.perform(post("/api/v1/projects").with(admin)
                         .cookie(new MockCookie("PROJECT_OS_ACCESS", "cookie-token"))

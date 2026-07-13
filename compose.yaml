@@ -7,6 +7,9 @@ x-service: &service
     DB_URL: jdbc:postgresql://postgres:5432/project_os
     JWT_SECRET: ${JWT_SECRET}
     DB_POOL_SIZE: 5
+    OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}
+    TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-1.0}
+    ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
   depends_on:
     postgres:
       condition: service_healthy
@@ -21,6 +24,8 @@ services:
       POSTGRES_USER: project_os_owner
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD}
+      ORGANIZATION_DB_PASSWORD: ${ORGANIZATION_DB_PASSWORD:-local_organization_password}
+      ATTENDANCE_DB_PASSWORD: ${ATTENDANCE_DB_PASSWORD:-local_attendance_password}
       PROJECT_DB_PASSWORD: ${PROJECT_DB_PASSWORD}
       WORK_DB_PASSWORD: ${WORK_DB_PASSWORD}
       OPERATIONS_DB_PASSWORD: ${OPERATIONS_DB_PASSWORD}
@@ -29,11 +34,33 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./deploy/postgres/init-services.sh:/docker-entrypoint-initdb.d/01-services.sh:ro
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-15433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U project_os_owner -d project_os"]
       interval: 5s
       timeout: 5s
       retries: 20
+    networks: [project-os]
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    mem_limit: 128m
+    command: redis-server --save "" --appendonly no --maxmemory 96mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [project-os]
+
+  zipkin:
+    image: openzipkin/zipkin:3
+    restart: unless-stopped
+    mem_limit: 256m
+    ports:
+      - "127.0.0.1:${ZIPKIN_PORT:-19411}:9411"
     networks: [project-os]
 
   minio:
@@ -48,6 +75,11 @@ services:
       - minio_data:/data
     ports:
       - "127.0.0.1:${MINIO_CONSOLE_PORT:-19001}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
     networks: [project-os]
 
   identity-service:
@@ -86,6 +118,9 @@ services:
       PROJECT_DB_USERNAME: project_app
       PROJECT_DB_PASSWORD: ${PROJECT_DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      ACTIVITY_SERVICE_URL: http://activity-service:8086
+      PROJECT_SERVICE_URL: http://127.0.0.1:8082
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
       DB_POOL_SIZE: 5
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
@@ -104,9 +139,55 @@ services:
       WORK_DB_USERNAME: work_app
       WORK_DB_PASSWORD: ${WORK_DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      ACTIVITY_SERVICE_URL: http://activity-service:8086
+      PROJECT_SERVICE_URL: http://project-service:8082
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
       DB_POOL_SIZE: 5
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  organization-service:
+    <<: *service
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args: { MODULE: organization-service }
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/project_os
+      ORGANIZATION_DB_USERNAME: organization_app
+      ORGANIZATION_DB_PASSWORD: ${ORGANIZATION_DB_PASSWORD:-local_organization_password}
+      JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
+      DB_POOL_SIZE: 5
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  attendance-service:
+    <<: *service
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args: { MODULE: attendance-service }
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/project_os
+      ATTENDANCE_DB_USERNAME: attendance_app
+      ATTENDANCE_DB_PASSWORD: ${ATTENDANCE_DB_PASSWORD:-local_attendance_password}
+      JWT_SECRET: ${JWT_SECRET}
+      ORGANIZATION_SERVICE_URL: http://organization-service:8087
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
+      DB_POOL_SIZE: 5
+      OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}
+    depends_on:
+      postgres: { condition: service_healthy }
+      organization-service: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8088/actuator/health"]
       interval: 10s
       timeout: 3s
       retries: 20
@@ -122,6 +203,9 @@ services:
       OPERATIONS_DB_USERNAME: operations_app
       OPERATIONS_DB_PASSWORD: ${OPERATIONS_DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      ACTIVITY_SERVICE_URL: http://activity-service:8086
+      PROJECT_SERVICE_URL: http://project-service:8082
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
       DB_POOL_SIZE: 5
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health"]
@@ -144,6 +228,9 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET: ${MINIO_BUCKET:-project-os}
+      ACTIVITY_SERVICE_URL: http://activity-service:8086
+      PROJECT_SERVICE_URL: http://project-service:8082
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
       DB_POOL_SIZE: 5
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
@@ -162,6 +249,8 @@ services:
       ACTIVITY_DB_USERNAME: activity_app
       ACTIVITY_DB_PASSWORD: ${ACTIVITY_DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      PROJECT_SERVICE_URL: http://project-service:8082
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
       DB_POOL_SIZE: 5
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8086/actuator/health"]
@@ -177,14 +266,26 @@ services:
     restart: unless-stopped
     environment:
       SERVER_ADDRESS: 0.0.0.0
+      JWT_SECRET: ${JWT_SECRET}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      READ_MODEL_CACHE_TTL_SECONDS: ${READ_MODEL_CACHE_TTL_SECONDS:-30}
+      OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-1.0}
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
       IDENTITY_SERVICE_URL: http://identity-service:8081
+      ORGANIZATION_SERVICE_URL: http://organization-service:8087
+      ATTENDANCE_SERVICE_URL: http://attendance-service:8088
       PROJECT_SERVICE_URL: http://project-service:8082
       WORK_SERVICE_URL: http://work-service:8083
       OPERATIONS_SERVICE_URL: http://operations-service:8084
       KNOWLEDGE_SERVICE_URL: http://knowledge-service:8085
       ACTIVITY_SERVICE_URL: http://activity-service:8086
     depends_on:
+      redis: { condition: service_healthy }
       identity-service: { condition: service_healthy }
+      organization-service: { condition: service_healthy }
+      attendance-service: { condition: service_healthy }
       project-service: { condition: service_healthy }
       work-service: { condition: service_healthy }
       operations-service: { condition: service_healthy }
@@ -192,6 +293,11 @@ services:
       activity-service: { condition: service_healthy }
     ports:
       - "127.0.0.1:${GATEWAY_PORT:-18080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
     networks: [project-os]
 
 networks:

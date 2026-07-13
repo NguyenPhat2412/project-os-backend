@@ -18,6 +18,8 @@
         <module>platform-common</module>
         <module>resource-service-core</module>
         <module>identity-service</module>
+        <module>organization-service</module>
+        <module>attendance-service</module>
         <module>project-service</module>
         <module>work-service</module>
         <module>operations-service</module>
@@ -29,6 +31,7 @@
     <properties>
         <java.version>21</java.version>
         <spring-cloud.version>2025.1.2</spring-cloud.version>
+        <springdoc.version>3.0.3</springdoc.version>
     </properties>
 
     <dependencyManagement>
@@ -44,6 +47,16 @@
     </dependencyManagement>
 
     <build>
+        <plugins>
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <management.tracing.export.zipkin.enabled>false</management.tracing.export.zipkin.enabled>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+        </plugins>
         <pluginManagement>
             <plugins>
                 <plugin>

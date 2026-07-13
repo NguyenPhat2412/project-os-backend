@@ -1,0 +1,7 @@
+tunnel: REPLACE_WITH_CLOUDFLARE_TUNNEL_UUID
+credentials-file: /etc/cloudflared/REPLACE_WITH_CLOUDFLARE_TUNNEL_UUID.json
+
+ingress:
+  - hostname: project.example.com
+    service: http://127.0.0.1:80
+  - service: http_status:404

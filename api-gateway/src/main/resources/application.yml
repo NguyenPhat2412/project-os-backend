@@ -4,11 +4,73 @@ server:
 
 spring:
   application.name: api-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      connect-timeout: 1s
+      timeout: 1s
   cloud.gateway.server.webmvc.routes:
+    - id: identity-openapi
+      uri: ${IDENTITY_SERVICE_URL:http://localhost:8081}
+      predicates:
+        - Path=/api/v1/openapi/identity
+      filters:
+        - SetPath=/v3/api-docs
+    - id: project-openapi
+      uri: ${PROJECT_SERVICE_URL:http://localhost:8082}
+      predicates:
+        - Path=/api/v1/openapi/project
+      filters:
+        - SetPath=/v3/api-docs
+    - id: organization-openapi
+      uri: ${ORGANIZATION_SERVICE_URL:http://localhost:8087}
+      predicates:
+        - Path=/api/v1/openapi/organization
+      filters:
+        - SetPath=/v3/api-docs
+    - id: attendance-openapi
+      uri: ${ATTENDANCE_SERVICE_URL:http://localhost:8088}
+      predicates:
+        - Path=/api/v1/openapi/attendance
+      filters:
+        - SetPath=/v3/api-docs
+    - id: work-openapi
+      uri: ${WORK_SERVICE_URL:http://localhost:8083}
+      predicates:
+        - Path=/api/v1/openapi/work
+      filters:
+        - SetPath=/v3/api-docs
+    - id: operations-openapi
+      uri: ${OPERATIONS_SERVICE_URL:http://localhost:8084}
+      predicates:
+        - Path=/api/v1/openapi/operations
+      filters:
+        - SetPath=/v3/api-docs
+    - id: knowledge-openapi
+      uri: ${KNOWLEDGE_SERVICE_URL:http://localhost:8085}
+      predicates:
+        - Path=/api/v1/openapi/knowledge
+      filters:
+        - SetPath=/v3/api-docs
+    - id: activity-openapi
+      uri: ${ACTIVITY_SERVICE_URL:http://localhost:8086}
+      predicates:
+        - Path=/api/v1/openapi/activity
+      filters:
+        - SetPath=/v3/api-docs
     - id: identity-service
       uri: ${IDENTITY_SERVICE_URL:http://localhost:8081}
       predicates:
-        - Path=/api/v1/auth/**,/api/v1/users/**,/api/v1/oauth2/**,/api/v1/login/oauth2/**
+        - Path=/api/v1/auth/**,/api/v1/users/**,/api/v1/admin/users/**,/api/v1/oauth2/**,/api/v1/login/oauth2/**
+    - id: attendance-service
+      uri: ${ATTENDANCE_SERVICE_URL:http://localhost:8088}
+      predicates:
+        - Path=/api/v1/organizations/*/attendance/**
+    - id: organization-service
+      uri: ${ORGANIZATION_SERVICE_URL:http://localhost:8087}
+      predicates:
+        - Path=/api/v1/organizations/**
     - id: activity-comments
       uri: ${ACTIVITY_SERVICE_URL:http://localhost:8086}
       predicates:
@@ -35,3 +97,15 @@ spring:
         - Path=/api/v1/projects,/api/v1/projects/*,/api/v1/projects/*/members/**,/api/v1/projects/*/roles/**,/api/v1/projects/*/role-assignments/**,/api/v1/projects/*/settings/**
 
 management.endpoints.web.exposure.include: health,info
+management.tracing.sampling.probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+management.tracing.export.zipkin.endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}
+
+springdoc:
+  api-docs.enabled: ${OPENAPI_ENABLED:false}
+  swagger-ui.enabled: ${OPENAPI_ENABLED:false}
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:local-development-jwt-secret-32-characters-minimum}
+  read-model:
+    cache-ttl-seconds: ${READ_MODEL_CACHE_TTL_SECONDS:30}
