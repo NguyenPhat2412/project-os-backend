@@ -3,6 +3,7 @@ package vn.uytinmang.projectos.attendance;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -65,6 +66,26 @@ class AttendanceContractTest {
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
         mvc.perform(post(base+"/adjustments/"+invalidAdjustmentId+"/decision").with(actor).contentType(MediaType.APPLICATION_JSON).content("{\"decision\":\"approve\"}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("invalid_adjustment_time"));
+    }
+    @Test void employeeOnlySeesSelfWhileManagerCanViewDirectReport() throws Exception {
+        UUID organizationId=UUID.randomUUID(), managerUserId=UUID.randomUUID(), managerEmployeeId=UUID.randomUUID(), reportEmployeeId=UUID.randomUUID(), peerEmployeeId=UUID.randomUUID();
+        when(organization.timezone(organizationId)).thenReturn("Asia/Ho_Chi_Minh");
+        when(organization.access(organizationId,managerUserId)).thenReturn(new OrganizationClient.Access("Asia/Ho_Chi_Minh","MEMBER"));
+        when(organization.employeeByUser(organizationId,managerUserId)).thenReturn(new OrganizationClient.Employee(managerEmployeeId,organizationId,null,managerUserId,"active"));
+        when(organization.employee(organizationId,reportEmployeeId)).thenReturn(new OrganizationClient.Employee(reportEmployeeId,organizationId,managerEmployeeId,UUID.randomUUID(),"active"));
+        when(organization.employee(organizationId,peerEmployeeId)).thenReturn(new OrganizationClient.Employee(peerEmployeeId,organizationId,UUID.randomUUID(),UUID.randomUUID(),"active"));
+        var actor=jwt().jwt(token->token.claim("uid",managerUserId.toString()).claim("role","USER"));
+        String base="/api/v1/organizations/"+organizationId+"/attendance";
+
+        mvc.perform(get(base+"/scope").with(actor)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.employeeId").value(managerEmployeeId.toString()))
+                .andExpect(jsonPath("$.data.organizationAdmin").value(false));
+        mvc.perform(get(base+"/timesheet").param("employeeId",reportEmployeeId.toString()).with(actor))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data").isArray());
+        mvc.perform(get(base+"/reports/monthly").param("month",LocalDate.now().toString().substring(0,7)).param("employeeId",reportEmployeeId.toString()).with(actor))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.employeeId").value(reportEmployeeId.toString()));
+        mvc.perform(get(base+"/timesheet").param("employeeId",peerEmployeeId.toString()).with(actor))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.error.code").value("attendance_access_denied"));
     }
     private String id(String body) throws Exception { return json.readTree(body).path("data").path("id").asText(); }
 }

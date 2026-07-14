@@ -22,7 +22,7 @@ springdoc:
   swagger-ui.enabled: ${OPENAPI_ENABLED:false}
 app:
   jwt.secret: ${JWT_SECRET:local-development-jwt-secret-32-characters-minimum}
-  resources: tasks,task-columns,sprints,epics,user-stories,bugs,bug-columns
+  resources: tasks,task-columns,sprints,epics,user-stories,bugs,bug-columns,daily-reports
   outbox:
     enabled: ${OUTBOX_ENABLED:true}
     activity-url: ${ACTIVITY_SERVICE_URL:http://localhost:8086}
@@ -30,4 +30,5 @@ app:
   rbac:
     enabled: ${RBAC_ENABLED:true}
     project-service-url: ${PROJECT_SERVICE_URL:http://localhost:8082}
+    organization-service-url: ${ORGANIZATION_SERVICE_URL:http://localhost:8087}
     internal-token: ${INTERNAL_SERVICE_TOKEN:local-internal-service-token-change-me}

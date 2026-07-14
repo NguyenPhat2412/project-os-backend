@@ -70,7 +70,7 @@ spring:
     - id: organization-service
       uri: ${ORGANIZATION_SERVICE_URL:http://localhost:8087}
       predicates:
-        - Path=/api/v1/organizations/**
+        - Path=/api/v1/organizations/**,/api/v1/me/workspace
     - id: activity-comments
       uri: ${ACTIVITY_SERVICE_URL:http://localhost:8086}
       predicates:
@@ -78,7 +78,7 @@ spring:
     - id: work-service
       uri: ${WORK_SERVICE_URL:http://localhost:8083}
       predicates:
-        - Path=/api/v1/projects/*/tasks/**,/api/v1/projects/*/task-columns/**,/api/v1/projects/*/sprints/**,/api/v1/projects/*/epics/**,/api/v1/projects/*/user-stories/**,/api/v1/projects/*/bugs/**,/api/v1/projects/*/bug-columns/**
+        - Path=/api/v1/me/tasks/**,/api/v1/me/daily-reports/**,/api/v1/manager/**,/api/v1/projects/*/tasks/**,/api/v1/projects/*/task-columns/**,/api/v1/projects/*/sprints/**,/api/v1/projects/*/epics/**,/api/v1/projects/*/user-stories/**,/api/v1/projects/*/bugs/**,/api/v1/projects/*/bug-columns/**
     - id: operations-service
       uri: ${OPERATIONS_SERVICE_URL:http://localhost:8084}
       predicates:

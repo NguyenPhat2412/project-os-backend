@@ -1,6 +1,10 @@
 server.port: ${SERVER_PORT:8085}
 spring:
   application.name: knowledge-service
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/project_os}
     username: ${KNOWLEDGE_DB_USERNAME:project_os}

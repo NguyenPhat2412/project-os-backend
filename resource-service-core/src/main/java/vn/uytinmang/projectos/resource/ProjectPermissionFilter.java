@@ -82,6 +82,7 @@ public class ProjectPermissionFilter extends OncePerRequestFilter {
         try {
             UUID projectId = UUID.fromString(segments[4]);
             String resource = segments.length > 5 && !segments[5].isBlank() ? segments[5] : "projects";
+            if ("tasks".equals(resource)) resource = "tasks-all";
             return new PathScope(projectId, resource.replace('_', '-'));
         } catch (IllegalArgumentException exception) {
             return null;

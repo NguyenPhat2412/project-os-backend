@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import vn.uytinmang.projectos.organization.domain.OrganizationApplicationService;
 import vn.uytinmang.projectos.platform.api.ApiException;
 import vn.uytinmang.projectos.platform.api.ApiResponse;
+import vn.uytinmang.projectos.platform.api.PageResponse;
 import org.springframework.http.HttpStatus;
 
 @RestController
@@ -29,6 +30,12 @@ class InternalOrganizationController {
     ApiResponse<OrganizationController.EmployeeView> employee(@PathVariable UUID organizationId, @PathVariable UUID employeeId, @RequestHeader(value = "X-Internal-Token", required = false) String presented) {
         requireToken(presented);
         return ApiResponse.of(service.employee(organizationId, employeeId));
+    }
+    @GetMapping("/{organizationId}/employees/by-supervisor/{supervisorId}")
+    PageResponse<OrganizationController.EmployeeView> directReports(@PathVariable UUID organizationId,
+            @PathVariable UUID supervisorId, @RequestHeader(value = "X-Internal-Token", required = false) String presented) {
+        requireToken(presented);
+        return service.directReports(organizationId, supervisorId, 0, 200);
     }
     @GetMapping("/{organizationId}/access/{userId}")
     ApiResponse<OrganizationApplicationService.InternalAccess> access(@PathVariable UUID organizationId, @PathVariable UUID userId, @RequestHeader(value = "X-Internal-Token", required = false) String presented) {

@@ -14,7 +14,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "organization_memberships")
 public class OrganizationMembership {
-    public enum Role { OWNER, ADMIN, MEMBER }
+    public enum Role { OWNER, ADMIN, HR, DEPARTMENT_MANAGER, EMPLOYEE, MEMBER }
     public enum Status { ACTIVE, DISABLED }
     @Id private UUID id;
     @Column(name = "organization_id", nullable = false) private UUID organizationId;

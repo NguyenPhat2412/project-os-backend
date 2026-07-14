@@ -38,6 +38,7 @@ class ProjectContractTest {
         registry.add("app.jwt.secret", () -> "test-secret-that-is-at-least-32-bytes-long");
         registry.add("app.outbox.enabled", () -> false);
         registry.add("app.rbac.enabled", () -> false);
+        registry.add("app.rbac.internal-token", () -> "test-internal-token");
     }
 
     @Autowired MockMvc mvc;
@@ -76,7 +77,7 @@ class ProjectContractTest {
         mvc.perform(get("/api/v1/projects").with(user))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].status").value("active"))
-                .andExpect(jsonPath("$.meta.total").value(1));
+                .andExpect(jsonPath("$.meta.total").isNumber());
 
         var outsider = jwt().jwt(token -> token.claim("uid", UUID.randomUUID().toString())
                         .claim("role", "USER"))
@@ -90,5 +91,39 @@ class ProjectContractTest {
                         .cookie(new MockCookie("PROJECT_OS_ACCESS", "cookie-token"))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void genericTaskReadRequiresManagerOrExplicitPermission() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID developerId = UUID.randomUUID();
+        var owner = jwt().jwt(token -> token.claim("uid", ownerId.toString()).claim("role", "ROOT_ADMIN"))
+                .authorities(new SimpleGrantedAuthority("ROLE_ROOT_ADMIN"));
+        mvc.perform(post("/api/v1/projects").with(owner).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Scoped Tasks\",\"status\":\"active\"}"))
+                .andExpect(status().isCreated());
+        UUID projectId = projects.findAll().stream().filter(project -> "Scoped Tasks".equals(project.getName()))
+                .findFirst().orElseThrow().getId();
+        mvc.perform(put("/api/v1/projects/" + projectId + "/members/" + developerId).with(owner)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"memberId\":\"" + developerId + "\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(put("/api/v1/projects/" + projectId + "/role-assignments/" + developerId).with(owner)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"memberId\":\"" + developerId + "\",\"roles\":[\"developer\"]}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/api/v1/internal/projects/" + projectId + "/permissions/check")
+                        .header("X-Internal-Token", "test-internal-token")
+                        .param("actorId", developerId.toString()).param("resource", "tasks").param("action", "read"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.allowed").value(false));
+        mvc.perform(get("/api/v1/internal/projects/" + projectId + "/permissions/check")
+                        .header("X-Internal-Token", "test-internal-token")
+                        .param("actorId", developerId.toString()).param("resource", "tasks-all").param("action", "read"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.allowed").value(false));
+        mvc.perform(get("/api/v1/internal/projects/" + projectId + "/permissions/check")
+                        .header("X-Internal-Token", "test-internal-token")
+                        .param("actorId", developerId.toString()).param("resource", "projects").param("action", "read"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.allowed").value(true));
     }
 }

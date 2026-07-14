@@ -16,6 +16,7 @@ interface OrganizationRepository extends JpaRepository<Organization, UUID> {
 interface DepartmentRepository extends JpaRepository<Department, UUID> { Page<Department> findByOrganizationId(UUID organizationId, Pageable pageable); }
 interface EmployeeRepository extends JpaRepository<Employee, UUID> {
     Page<Employee> findByOrganizationId(UUID organizationId, Pageable pageable);
+    Page<Employee> findByOrganizationIdAndSupervisorId(UUID organizationId, UUID supervisorId, Pageable pageable);
     Optional<Employee> findByOrganizationIdAndUserId(UUID organizationId, UUID userId);
     long countByOrganizationIdAndDepartmentId(UUID organizationId, UUID departmentId);
 }

@@ -101,6 +101,7 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:3000/api/v1/login/oauth2/code/google}
       GOOGLE_OAUTH_SUCCESS_URL: ${GOOGLE_OAUTH_SUCCESS_URL:-http://localhost:3000/projects}
+      PROJECT_SERVICE_URL: http://project-service:8082
       DB_POOL_SIZE: 5
       OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}
       TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-1.0}
@@ -171,6 +172,8 @@ services:
       ORGANIZATION_DB_PASSWORD: ${ORGANIZATION_DB_PASSWORD:-local_organization_password}
       JWT_SECRET: ${JWT_SECRET}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       DB_POOL_SIZE: 5
       OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}
       TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-1.0}
@@ -180,6 +183,9 @@ services:
       interval: 10s
       timeout: 3s
       retries: 20
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
 
   attendance-service:
     <<: *service

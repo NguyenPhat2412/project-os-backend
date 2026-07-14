@@ -31,6 +31,7 @@ springdoc:
   swagger-ui.enabled: ${OPENAPI_ENABLED:false}
 
 app:
+  project-service-url: ${PROJECT_SERVICE_URL:http://localhost:8082}
   jwt:
     secret: ${JWT_SECRET:local-development-jwt-secret-32-characters-minimum}
     access-ttl-minutes: ${JWT_ACCESS_TTL_MINUTES:15}

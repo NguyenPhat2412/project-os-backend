@@ -121,4 +121,48 @@ class WorkResourceContractTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.meta.total").value(1));
     }
+
+    @Test
+    void employeeOnlyReadsOwnTasksAndCanOnlyPatchStatus() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID employeeId = UUID.randomUUID();
+        UUID colleagueId = UUID.randomUUID();
+        var root = jwt().jwt(token -> token.claim("uid", UUID.randomUUID().toString()).claim("role", "ROOT_ADMIN"));
+        var employee = jwt().jwt(token -> token.claim("uid", employeeId.toString()).claim("role", "USER"));
+        String path = "/api/v1/projects/" + projectId + "/tasks";
+        mvc.perform(post(path).with(root).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"legacyId\":\"MINE-1\",\"title\":\"Mine\",\"status\":\"todo\",\"assigneeId\":\"" + employeeId + "\"}"))
+                .andExpect(status().isCreated());
+        mvc.perform(post(path).with(root).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"legacyId\":\"OTHER-1\",\"title\":\"Other\",\"status\":\"todo\",\"assigneeId\":\"" + colleagueId + "\"}"))
+                .andExpect(status().isCreated());
+
+        mvc.perform(get("/api/v1/me/tasks?projectId=" + projectId).with(employee))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.meta.total").value(1))
+                .andExpect(jsonPath("$.data[0].id").value("MINE-1"));
+        mvc.perform(get("/api/v1/me/tasks/OTHER-1?projectId=" + projectId).with(employee))
+                .andExpect(status().isForbidden());
+        mvc.perform(patch("/api/v1/me/tasks/MINE-1/status?projectId=" + projectId).with(employee)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"done\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("done"));
+
+        String report = "{\"projectId\":\"" + projectId + "\",\"date\":\"2026-07-13\",\"summary\":\"Finished login\"}";
+        mvc.perform(post("/api/v1/me/daily-reports").with(employee).contentType(MediaType.APPLICATION_JSON).content(report))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.data.userId").value(employeeId.toString()));
+        mvc.perform(post("/api/v1/me/daily-reports").with(employee).contentType(MediaType.APPLICATION_JSON).content(report))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void rootCanCreateTaskThroughManagerContract() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID assigneeId = UUID.randomUUID();
+        var root = jwt().jwt(token -> token.claim("uid", UUID.randomUUID().toString()).claim("role", "ROOT_ADMIN"));
+        mvc.perform(post("/api/v1/manager/tasks").with(root).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"projectId\":\"" + projectId + "\",\"organizationId\":\"" + UUID.randomUUID()
+                                + "\",\"assigneeId\":\"" + assigneeId
+                                + "\",\"legacyId\":\"TEAM-1\",\"title\":\"Assigned by manager\",\"status\":\"todo\"}"))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.data.id").value("TEAM-1"))
+                .andExpect(jsonPath("$.data.assigneeId").value(assigneeId.toString()));
+    }
 }

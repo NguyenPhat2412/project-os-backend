@@ -17,7 +17,8 @@ import vn.uytinmang.projectos.resource.ResourceRecordRepository;
 @Service
 class ProjectPermissionService {
     private static final Set<String> ADMIN_RESOURCES = Set.of(
-            "projects", "members", "roles", "role-assignments", "settings");
+            "projects", "members", "roles", "role-assignments", "settings", "tasks-all");
+    private static final Set<String> SCOPED_RESOURCES = Set.of("tasks", "tasks-all", "daily-reports");
     private final ProjectRepository projects;
     private final ResourceRecordRepository records;
 
@@ -33,7 +34,9 @@ class ProjectPermissionService {
         if (actorId.equals(project.get().getOwnerId())) return true;
 
         Set<String> assignedRoles = assignedRoles(projectId, actorId);
-        if ("read".equals(action)) return !assignedRoles.isEmpty() || isMember(projectId, actorId);
+        if ("read".equals(action) && !SCOPED_RESOURCES.contains(normalize(resource))) {
+            return !assignedRoles.isEmpty() || isMember(projectId, actorId);
+        }
         if (assignedRoles.stream().anyMatch(this::isProjectAdmin)) return true;
         String permission = normalize(resource) + ":" + normalize(action);
         Map<String, Set<String>> definitions = roleDefinitions(projectId);
@@ -91,9 +94,9 @@ class ProjectPermissionService {
         if (ADMIN_RESOURCES.contains(normalizedResource)) return false;
         return switch (role) {
             case "pm", "project-manager" -> true;
-            case "developer" -> Set.of("tasks", "task-columns", "sprints", "bugs", "comments",
+            case "developer" -> Set.of("task-columns", "sprints", "bugs", "comments",
                     "documents", "folders", "wikis", "attachments", "activities").contains(normalizedResource);
-            case "qc", "qa" -> Set.of("tasks", "bugs", "bug-columns", "comments", "activities")
+            case "qc", "qa" -> Set.of("bugs", "bug-columns", "comments", "activities")
                     .contains(normalizedResource);
             case "ba", "business-analyst" -> Set.of("epics", "user-stories", "documents", "wikis",
                     "comments", "activities").contains(normalizedResource);

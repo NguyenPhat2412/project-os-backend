@@ -153,7 +153,7 @@ public class ResourceApplicationService {
         return ((ObjectNode) node).deepCopy();
     }
 
-    private JsonNode view(ResourceRecord record) {
+    public JsonNode view(ResourceRecord record) {
         ObjectNode view = payload(record.getPayload());
         view.put("id", record.getLegacyId() == null ? record.getId().toString() : record.getLegacyId());
         view.put("uuid", record.getId().toString());

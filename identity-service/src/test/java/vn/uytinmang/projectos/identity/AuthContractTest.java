@@ -193,6 +193,8 @@ class AuthContractTest {
 
     @Test
     void authenticatedUsersCanReadOnlyActiveDirectoryEntries() throws Exception {
+        var root = jwt().jwt(token -> token.claim("uid", java.util.UUID.randomUUID().toString())
+                .claim("role", "ROOT_ADMIN")).authorities(new SimpleGrantedAuthority("ROLE_ROOT_ADMIN"));
         var user = jwt().jwt(token -> token.claim("uid", java.util.UUID.randomUUID().toString())
                 .claim("role", "USER")).authorities(new SimpleGrantedAuthority("ROLE_USER"));
         mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
@@ -200,11 +202,15 @@ class AuthContractTest {
                                 + "\"displayName\":\"Directory User\"}"))
                 .andExpect(status().isCreated());
 
-        mvc.perform(get("/api/v1/users/directory?search=directory").with(user))
+        mvc.perform(get("/api/v1/users/directory?search=directory").with(root))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.meta.total").value(1))
                 .andExpect(jsonPath("$.data[0].email").value("directory@example.com"))
                 .andExpect(jsonPath("$.data[0].role").doesNotExist());
+
+        mvc.perform(get("/api/v1/users/directory").with(user))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("project_scope_required"));
 
         mvc.perform(get("/api/v1/users/directory"))
                 .andExpect(status().isUnauthorized())

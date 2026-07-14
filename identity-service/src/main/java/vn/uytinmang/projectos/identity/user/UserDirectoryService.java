@@ -1,6 +1,7 @@
 package vn.uytinmang.projectos.identity.user;
 
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -20,12 +21,17 @@ class UserDirectoryService {
     }
 
     @Transactional(readOnly = true)
-    PageResponse<DirectoryUser> list(int page, int size, String search) {
+    PageResponse<DirectoryUser> list(int page, int size, String search, Set<UUID> visibleUserIds) {
         if (page < 0 || size < 1 || size > 100) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_pagination", "page must be >= 0 and size 1-100");
         }
         Specification<UserAccount> specification = (root, query, builder) ->
                 builder.equal(root.get("status"), UserAccount.Status.ACTIVE);
+        if (visibleUserIds != null) {
+            specification = specification.and((root, query, builder) -> visibleUserIds.isEmpty()
+                    ? builder.disjunction()
+                    : root.get("id").in(visibleUserIds));
+        }
         if (search != null && !search.isBlank()) {
             String pattern = "%" + search.trim().toLowerCase(Locale.ROOT) + "%";
             specification = specification.and((root, query, builder) -> builder.or(
