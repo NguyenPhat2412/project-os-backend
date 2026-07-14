@@ -57,7 +57,7 @@ public class ResourceApplicationService {
         catalog.require(resource);
         ObjectNode payload = payload(body);
         String legacyId = text(payload, "legacyId");
-        if (legacyId == null) legacyId = nonUuid(text(payload, "id"));
+        if (legacyId == null) legacyId = preserveExternalId(text(payload, "id"));
         payload.remove(List.of("id", "uuid", "legacyId", "projectId", "createdAt", "updatedAt"));
         if (legacyId != null && records.findByProjectIdAndResourceTypeAndLegacyId(projectId, resource, legacyId)
                 .isPresent()) {
@@ -74,7 +74,7 @@ public class ResourceApplicationService {
         ObjectNode payload = payload(body);
         payload.remove(List.of("id", "uuid", "legacyId", "projectId", "createdAt", "updatedAt"));
         ResourceRecord record = findOptional(projectId, resource, externalId).orElseGet(() ->
-                new ResourceRecord(projectId, resource, nonUuid(externalId), payload.deepCopy(), actorId));
+                new ResourceRecord(projectId, resource, preserveExternalId(externalId), payload.deepCopy(), actorId));
         record.replace(payload);
         record = records.save(record);
         outbox.record(record, "updated", actorId);
@@ -170,14 +170,11 @@ public class ResourceApplicationService {
                 ? null : value.asText().trim();
     }
 
-    private String nonUuid(String value) {
-        if (value == null) return null;
-        try {
-            UUID.fromString(value);
-            return null;
-        } catch (IllegalArgumentException ignored) {
-            return value;
-        }
+    private String preserveExternalId(String value) {
+        // Record UUIDs and client business IDs are different namespaces. A
+        // membership uses the user's UUID as its business ID, so stripping a
+        // UUID here makes later PUT/PATCH/DELETE unable to find that record.
+        return value;
     }
 
     private boolean isLegacyDeleteField(JsonNode value) {
