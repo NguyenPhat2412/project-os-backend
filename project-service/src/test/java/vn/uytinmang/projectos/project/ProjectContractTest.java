@@ -51,15 +51,21 @@ class ProjectContractTest {
                 .authorities(new SimpleGrantedAuthority("ROLE_USER"));
         var admin = jwt().jwt(token -> token.claim("uid", actorId.toString()).claim("role", "ROOT_ADMIN"))
                 .authorities(new SimpleGrantedAuthority("ROLE_ROOT_ADMIN"));
-        String body = "{\"name\":\"PostgreSQL Project\",\"description\":\"Persisted\",\"status\":\"active\",\"icon\":\"P\",\"color\":\"blue\"}";
+        UUID organizationId = UUID.randomUUID();
+        String body = "{\"name\":\"PostgreSQL Project\",\"description\":\"Persisted\",\"status\":\"active\",\"icon\":\"P\",\"color\":\"blue\",\"organizationId\":\"" + organizationId + "\"}";
 
-        mvc.perform(post("/api/v1/projects").with(user).contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/projects").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnauthorized());
+
+        mvc.perform(post("/api/v1/projects").with(admin).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Missing organization\"}"))
+                .andExpect(status().isBadRequest());
 
         mvc.perform(post("/api/v1/projects").with(admin).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.name").value("PostgreSQL Project"))
-                .andExpect(jsonPath("$.data.ownerId").value(actorId.toString()));
+                .andExpect(jsonPath("$.data.ownerId").value(actorId.toString()))
+                .andExpect(jsonPath("$.data.organizationId").value(organizationId.toString()));
 
         UUID projectId = projects.findAll().getFirst().getId();
         mvc.perform(put("/api/v1/projects/" + projectId + "/settings/dashboard").with(admin)
@@ -100,7 +106,7 @@ class ProjectContractTest {
         var owner = jwt().jwt(token -> token.claim("uid", ownerId.toString()).claim("role", "ROOT_ADMIN"))
                 .authorities(new SimpleGrantedAuthority("ROLE_ROOT_ADMIN"));
         mvc.perform(post("/api/v1/projects").with(owner).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Scoped Tasks\",\"status\":\"active\"}"))
+                .content("{\"name\":\"Scoped Tasks\",\"status\":\"active\",\"organizationId\":\"" + UUID.randomUUID() + "\"}"))
                 .andExpect(status().isCreated());
         UUID projectId = projects.findAll().stream().filter(project -> "Scoped Tasks".equals(project.getName()))
                 .findFirst().orElseThrow().getId();

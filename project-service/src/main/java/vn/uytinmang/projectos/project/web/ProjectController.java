@@ -3,6 +3,7 @@ package vn.uytinmang.projectos.project.web;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -10,7 +11,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -46,27 +46,31 @@ public class ProjectController {
     }
 
     @GetMapping("/{id}")
-    ApiResponse<ProjectView> get(@PathVariable UUID id) { return ApiResponse.of(service.get(id)); }
+    ApiResponse<ProjectView> get(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) {
+        return ApiResponse.of(service.get(id, actor(jwt), root(jwt)));
+    }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasRole('ROOT_ADMIN')")
     ApiResponse<ProjectView> create(@Valid @RequestBody ProjectRequest request,
                                     @AuthenticationPrincipal Jwt jwt) {
-        return ApiResponse.of(service.create(request, UUID.fromString(jwt.getClaimAsString("uid"))));
+        return ApiResponse.of(service.create(request, actor(jwt), root(jwt)));
     }
 
     @PatchMapping("/{id}")
     ApiResponse<ProjectView> update(@PathVariable UUID id, @Valid @RequestBody ProjectPatch request,
                                     @AuthenticationPrincipal Jwt jwt) {
-        return ApiResponse.of(service.update(id, request, UUID.fromString(jwt.getClaimAsString("uid"))));
+        return ApiResponse.of(service.update(id, request, actor(jwt), root(jwt)));
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void delete(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) {
-        service.delete(id, UUID.fromString(jwt.getClaimAsString("uid")));
+        service.delete(id, actor(jwt), root(jwt));
     }
+
+    private UUID actor(Jwt jwt) { return UUID.fromString(jwt.getClaimAsString("uid")); }
+    private boolean root(Jwt jwt) { return "ROOT_ADMIN".equals(jwt.getClaimAsString("role")); }
 
     public record ProjectRequest(@NotBlank @Size(max = 150) String name,
                                  @Size(max = 5000) String description,
@@ -78,7 +82,7 @@ public class ProjectController {
                                  List<@Size(max = 100) String> techStack,
                                  @Min(0) Integer teamSize,
                                  UUID ownerId,
-                                 UUID organizationId,
+                                 @NotNull UUID organizationId,
                                  @Size(max = 255) String legacyId) {
     }
 

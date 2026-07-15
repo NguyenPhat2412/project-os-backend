@@ -32,4 +32,5 @@ app:
   rbac:
     enabled: ${RBAC_ENABLED:true}
     project-service-url: ${PROJECT_SERVICE_URL:http://127.0.0.1:8082}
+    organization-service-url: ${ORGANIZATION_SERVICE_URL:http://localhost:8087}
     internal-token: ${INTERNAL_SERVICE_TOKEN:local-internal-service-token-change-me}

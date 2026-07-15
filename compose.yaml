@@ -125,6 +125,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       ACTIVITY_SERVICE_URL: http://activity-service:8086
       PROJECT_SERVICE_URL: http://127.0.0.1:8082
+      ORGANIZATION_SERVICE_URL: http://organization-service:8087
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-me}
       DB_POOL_SIZE: 5
       OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}

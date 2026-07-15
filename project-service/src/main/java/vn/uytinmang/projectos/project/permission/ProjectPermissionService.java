@@ -15,7 +15,7 @@ import vn.uytinmang.projectos.resource.ResourceRecord;
 import vn.uytinmang.projectos.resource.ResourceRecordRepository;
 
 @Service
-class ProjectPermissionService {
+public class ProjectPermissionService {
     private static final Set<String> ADMIN_RESOURCES = Set.of(
             "projects", "members", "roles", "role-assignments", "settings", "tasks-all");
     private static final Set<String> SCOPED_RESOURCES = Set.of("tasks", "tasks-all", "daily-reports");
@@ -28,7 +28,7 @@ class ProjectPermissionService {
     }
 
     @Transactional(readOnly = true)
-    boolean allowed(UUID projectId, UUID actorId, String resource, String action) {
+    public boolean allowed(UUID projectId, UUID actorId, String resource, String action) {
         var project = projects.findById(projectId);
         if (project.isEmpty()) return false;
         if (actorId.equals(project.get().getOwnerId())) return true;
