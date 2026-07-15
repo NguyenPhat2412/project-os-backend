@@ -32,6 +32,7 @@ class ReadModelContractTest {
             downstream = HttpServer.create(new InetSocketAddress(0), 0);
             port = downstream.getAddress().getPort();
             downstream.createContext("/api/v1/projects", ReadModelContractTest::respond);
+            downstream.createContext("/api/v1/users/directory", ReadModelContractTest::respond);
             downstream.start();
         } catch (IOException exception) {
             throw new ExceptionInInitializerError(exception);
@@ -46,6 +47,7 @@ class ReadModelContractTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("PROJECT_SERVICE_URL", () -> "http://127.0.0.1:" + port);
+        registry.add("IDENTITY_SERVICE_URL", () -> "http://127.0.0.1:" + port);
         registry.add("WORK_SERVICE_URL", () -> "http://127.0.0.1:" + port);
         registry.add("OPERATIONS_SERVICE_URL", () -> "http://127.0.0.1:" + port);
         registry.add("app.jwt.secret", () -> "test-secret-that-is-at-least-32-bytes-long");
@@ -65,7 +67,9 @@ class ReadModelContractTest {
                 .andExpect(status().isOk())
                 .andExpect(header().exists(ReadModelCache.HEADER))
                 .andExpect(jsonPath("$.data.summary.tasks").value(1))
-                .andExpect(jsonPath("$.data.summary.members").value(1));
+                .andExpect(jsonPath("$.data.summary.members").value(1))
+                .andExpect(jsonPath("$.data.team[0].name").value("User One"))
+                .andExpect(jsonPath("$.data.team[0].roles[0]").value("Developer"));
         mvc.perform(get(base + "/workload").with(user))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.workload[0].tasks").value(1));
@@ -86,7 +90,9 @@ class ReadModelContractTest {
     private static void respond(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
         String data;
-        if (path.endsWith("/tasks")) {
+        if (path.endsWith("/users/directory")) {
+            data = "[{\"id\":\"user-1\",\"displayName\":\"User One\",\"email\":\"user.one@example.com\"}]";
+        } else if (path.endsWith("/tasks")) {
             data = "[{\"id\":\"TASK-01\",\"assigneeId\":\"user-1\",\"points\":3,\"status\":\"todo\"}]";
         } else if (path.endsWith("/members")) {
             data = "[{\"id\":\"member-1\",\"memberId\":\"user-1\",\"roles\":[\"Developer\"]}]";

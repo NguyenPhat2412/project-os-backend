@@ -31,12 +31,17 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.ObjectNode;
 import vn.uytinmang.projectos.platform.api.ApiResponse;
 
 @RestController
 @RequestMapping("/api/v1/projects/{projectId}/read-model")
 public class ReadModelController {
     private static final Set<String> REPORT_RESOURCES = Set.of("tasks", "bugs", "risks");
+    private static final JsonNodeFactory JSON = JsonNodeFactory.instance;
+    private final RestClient identity;
     private final RestClient projects;
     private final RestClient work;
     private final RestClient operations;
@@ -44,10 +49,12 @@ public class ReadModelController {
     private final ReadModelCache cache;
 
     public ReadModelController(@Value("${PROJECT_SERVICE_URL:http://localhost:8082}") String projectUrl,
+                               @Value("${IDENTITY_SERVICE_URL:http://localhost:8081}") String identityUrl,
                                @Value("${WORK_SERVICE_URL:http://localhost:8083}") String workUrl,
                                @Value("${OPERATIONS_SERVICE_URL:http://localhost:8084}") String operationsUrl,
                                ObjectProvider<RestClient.Builder> clientBuilders,
                                ExecutorService executor, ReadModelCache cache) {
+        this.identity = client(clientBuilders, identityUrl);
         this.projects = client(clientBuilders, projectUrl);
         this.work = client(clientBuilders, workUrl);
         this.operations = client(clientBuilders, operationsUrl);
@@ -69,6 +76,7 @@ public class ReadModelController {
         var bugsFuture = async(() -> collection(work, projectId, "bugs", request));
         var risksFuture = async(() -> collection(operations, projectId, "risks", request));
         var membersFuture = async(() -> collection(projects, projectId, "members", request));
+        var directoryFuture = async(() -> directory(projectId, request));
 
         JsonNode meetings = join(meetingsFuture);
         JsonNode tasks = join(tasksFuture);
@@ -76,8 +84,9 @@ public class ReadModelController {
         JsonNode bugs = join(bugsFuture);
         JsonNode risks = join(risksFuture);
         JsonNode members = join(membersFuture);
-        DashboardReadModel model = new DashboardReadModel(meetings, tasks, taskColumns, bugs, risks, members,
-                new DashboardSummary(tasks.size(), bugs.size(), risks.size(), members.size(),
+        JsonNode team = enrichMembers(members, join(directoryFuture));
+        DashboardReadModel model = new DashboardReadModel(meetings, tasks, taskColumns, bugs, risks, team,
+                new DashboardSummary(tasks.size(), bugs.size(), risks.size(), team.size(),
                         counts(tasks, "status"), counts(bugs, "status"), counts(risks, "status")));
         return response(model, cache.put(key, model) ? "MISS" : "BYPASS");
     }
@@ -184,6 +193,66 @@ public class ReadModelController {
     private JsonNode collection(RestClient client, UUID projectId, String resource, HttpServletRequest request) {
         JsonNode response = get(client, "/api/v1/projects/" + projectId + "/" + resource + "?size=200", request);
         return response.path("data");
+    }
+
+    /**
+     * The project service owns memberships; Identity owns the display profile.  A dashboard is a
+     * gateway read model, so it returns the joined view rather than leaking membership records to
+     * the browser and forcing every dashboard panel to perform a second client-side join.
+     */
+    private JsonNode directory(UUID projectId, HttpServletRequest request) {
+        JsonNode response = get(identity, "/api/v1/users/directory?projectId=" + projectId + "&size=100", request);
+        return response.path("data");
+    }
+
+    private JsonNode enrichMembers(JsonNode memberships, JsonNode directory) {
+        Map<String, JsonNode> profiles = new LinkedHashMap<>();
+        for (JsonNode profile : directory) {
+            String id = profile.path("id").asText("");
+            if (!id.isBlank()) profiles.put(id, profile);
+        }
+        ArrayNode team = JSON.arrayNode();
+        for (JsonNode membership : memberships) {
+            String memberId = memberId(membership);
+            if (memberId.isBlank()) continue;
+            JsonNode profile = profiles.get(memberId);
+            String email = profile == null ? "" : profile.path("email").asText("");
+            String name = profile == null ? "Former member" : profile.path("displayName").asText("");
+            if (name.isBlank()) name = email.isBlank() ? "Former member" : email;
+
+            ObjectNode member = JSON.objectNode();
+            member.put("id", memberId);
+            member.put("name", name);
+            member.put("displayName", name);
+            member.put("email", email);
+            member.put("initials", initials(name));
+            member.put("gradient", "linear-gradient(135deg,#6c63ff,#a855f7)");
+            if (profile != null && profile.hasNonNull("avatarUrl")) {
+                member.put("photoURL", profile.path("avatarUrl").asText());
+            }
+            member.set("roles", membership.path("roles").isArray() ? membership.path("roles") : JSON.arrayNode());
+            // Workload is derived from the project task set by the dashboard client; zero work is vacant.
+            member.put("status", "Vacant");
+            team.add(member);
+        }
+        return team;
+    }
+
+    private String memberId(JsonNode membership) {
+        for (String field : List.of("memberId", "userId", "uid", "id")) {
+            String id = membership.path(field).asText("");
+            if (!id.isBlank()) return id;
+        }
+        return "";
+    }
+
+    private String initials(String name) {
+        StringBuilder result = new StringBuilder(2);
+        for (String part : name.trim().split("\\s+")) {
+            if (!part.isBlank()) result.append(part.charAt(0));
+            if (result.length() == 2) break;
+        }
+        return result.isEmpty() ? "?" : result.toString().toUpperCase(Locale.ROOT);
     }
 
     private JsonNode get(RestClient client, String path, HttpServletRequest request) {
