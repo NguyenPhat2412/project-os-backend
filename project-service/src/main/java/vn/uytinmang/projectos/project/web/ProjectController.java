@@ -40,8 +40,9 @@ public class ProjectController {
     @GetMapping
     PageResponse<ProjectView> list(@RequestParam(defaultValue = "0") int page,
                                    @RequestParam(defaultValue = "20") int size,
+                                   @RequestParam(required = false) UUID organizationId,
                                    @AuthenticationPrincipal Jwt jwt) {
-        return service.list(page, size, UUID.fromString(jwt.getClaimAsString("uid")),
+        return service.list(page, size, organizationId, UUID.fromString(jwt.getClaimAsString("uid")),
                 "ROOT_ADMIN".equals(jwt.getClaimAsString("role")));
     }
 

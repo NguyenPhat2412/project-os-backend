@@ -104,6 +104,13 @@ public class PermissionGroupService {
         return Optional.of(Set.copyOf(result));
     }
 
+    @Transactional(readOnly = true)
+    List<String> assignedGroupNames(UUID organizationId, UUID userId) {
+        Set<UUID> groupIds = groupMembers.findByOrganizationIdAndUserId(organizationId, userId).stream()
+                .map(PermissionGroupMember::getGroupId).collect(java.util.stream.Collectors.toSet());
+        return groups.findAllById(groupIds).stream().map(PermissionGroup::getName).sorted().toList();
+    }
+
     private void syncMembers(PermissionGroup group, Collection<UUID> requested) {
         Set<UUID> memberIds = Set.copyOf(requested);
         for (UUID userId : memberIds) requireActiveMember(group.getOrganizationId(), userId);

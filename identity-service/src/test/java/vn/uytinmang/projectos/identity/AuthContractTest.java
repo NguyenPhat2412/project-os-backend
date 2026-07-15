@@ -19,6 +19,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockCookie;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -51,6 +52,7 @@ class AuthContractTest {
 
     @Autowired MockMvc mvc;
     @Autowired UserAccountRepository users;
+    @Autowired JdbcTemplate jdbc;
 
     @Test
     void registerAndLoginIssueHttpOnlyCookies() throws Exception {
@@ -202,8 +204,10 @@ class AuthContractTest {
                                 + "\"displayName\":\"Directory User\"}"))
                 .andExpect(status().isCreated());
 
-        mvc.perform(get("/api/v1/users/directory?search=directory").with(root))
+        mvc.perform(get("/api/v1/users/directory?search=directory&page=0&size=10").with(root))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.page").value(0))
+                .andExpect(jsonPath("$.meta.size").value(10))
                 .andExpect(jsonPath("$.meta.total").value(1))
                 .andExpect(jsonPath("$.data[0].email").value("directory@example.com"))
                 .andExpect(jsonPath("$.data[0].role").doesNotExist());
@@ -219,6 +223,17 @@ class AuthContractTest {
                 .andExpect(jsonPath("$.error.path").value("/api/v1/users/directory"))
                 .andExpect(jsonPath("$.error.traceId").isNotEmpty())
                 .andExpect(jsonPath("$.error.timestamp").isNotEmpty());
+    }
+
+    @Test
+    void directorySearchIndexesAreInstalled() {
+        var indexes = jdbc.queryForList("""
+                select indexname from pg_indexes
+                where schemaname = 'identity' and tablename = 'users'
+                """, String.class);
+        assertThat(indexes).contains(
+                "users_active_directory_display_name_trgm_idx",
+                "users_active_directory_email_trgm_idx");
     }
 
     @Test

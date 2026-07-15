@@ -100,7 +100,8 @@ class OrganizationContractTest {
         mvc.perform(get("/api/v1/me/workspace?organizationId=" + organizationId).with(employee))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.modules.length()").value(2))
                 .andExpect(jsonPath("$.data.modules[0]").value("attendance"))
-                .andExpect(jsonPath("$.data.modules[1]").value("profile"));
+                .andExpect(jsonPath("$.data.modules[1]").value("profile"))
+                .andExpect(jsonPath("$.data.permissionGroups[0]").value("Attendance only"));
         mvc.perform(patch("/api/v1/organizations/" + organizationId + "/permission-groups/" + groupId)
                         .with(owner).contentType(MediaType.APPLICATION_JSON).content("{\"memberIds\":[\""
                                 + employeeId + "\",\"" + managerId + "\"]}"))
@@ -130,6 +131,8 @@ class OrganizationContractTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"fullName\":\"HR Managed Employee\",\"email\":\"managed-by-hr@example.com\"}"))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.data.fullName").value("HR Managed Employee"));
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/members").with(hr))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.meta.total").value(2));
         mvc.perform(get("/api/v1/organizations/" + organizationId + "/permission-groups").with(hr))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error.code").value("organization_admin_required"));

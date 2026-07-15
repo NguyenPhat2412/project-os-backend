@@ -4,7 +4,6 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.Locale;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,17 +33,22 @@ public class ProjectApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<ProjectController.ProjectView> list(int page, int size, UUID actorId, boolean rootAdmin) {
+    public PageResponse<ProjectController.ProjectView> list(int page, int size, UUID organizationId,
+                                                            UUID actorId, boolean rootAdmin) {
         if (page < 0 || size < 1 || size > 100) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_pagination",
                     "page must be >= 0 and size must be between 1 and 100");
         }
         var pageable = PageRequest.of(page, size);
-        var result = (rootAdmin
-                ? projects.findAll(PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "updatedAt")))
-                : projects.findAccessible(actorId, pageable)).map(ProjectController.ProjectView::from);
-        return PageResponse.of(result.getContent(), result.getNumber(), result.getSize(),
-                result.getTotalElements(), result.getTotalPages());
+        if (organizationId != null) organizations.requireMember(organizationId, actorId, rootAdmin);
+        var result = rootAdmin
+                ? organizationId == null ? projects.findAllByOrderByUpdatedAtDesc(pageable)
+                : projects.findByOrganizationIdOrderByUpdatedAtDesc(organizationId, pageable)
+                : organizationId == null ? projects.findAccessible(actorId, pageable)
+                : projects.findAccessibleByOrganizationId(actorId, organizationId, pageable);
+        var views = result.map(ProjectController.ProjectView::from);
+        return PageResponse.of(views.getContent(), views.getNumber(), views.getSize(),
+                views.getTotalElements(), views.getTotalPages());
     }
 
     @Transactional(readOnly = true)

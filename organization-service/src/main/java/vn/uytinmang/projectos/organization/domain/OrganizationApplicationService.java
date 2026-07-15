@@ -184,7 +184,7 @@ public class OrganizationApplicationService {
 
     @Transactional(readOnly = true)
     public PageResponse<OrganizationController.MembershipView> memberships(UUID organizationId, int page, int size, UUID actor, boolean root) {
-        requireAdmin(organizationId, actor, root);
+        requireHrOrAdmin(organizationId, actor, root);
         var result = memberships.findByOrganizationId(organizationId, page(page, size)).map(OrganizationController.MembershipView::from);
         return PageResponse.of(result.getContent(), result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages());
     }
@@ -239,6 +239,8 @@ public class OrganizationApplicationService {
                 : membershipRole == OrganizationMembership.Role.HR ? "HR" : "EMPLOYEE";
         Set<String> modules = root ? defaultModules(systemRole)
                 : permissionGroups.assignedModules(organization.getId(), actor).orElseGet(() -> defaultModules(systemRole));
+        String departmentName = employee == null || employee.getDepartmentId() == null ? null
+                : departments.findById(employee.getDepartmentId()).map(Department::getName).orElse(null);
         Map<String, String> scopes = switch (systemRole) {
             case "PLATFORM_ADMIN", "HR" -> Map.of("employees", "ORGANIZATION", "attendance", "ORGANIZATION",
                     "tasks", "ASSIGNED_PROJECT");
@@ -248,6 +250,7 @@ public class OrganizationApplicationService {
         };
         Workspace workspace = new Workspace(OrganizationController.OrganizationView.from(organization),
                 employee == null ? null : OrganizationController.EmployeeView.from(employee), systemRole,
+                departmentName, permissionGroups.assignedGroupNames(organization.getId(), actor),
                 modules.stream().sorted().toList(), scopes);
         workspaceCache.put(organization.getId(), actor, workspace);
         return workspace;
@@ -268,6 +271,7 @@ public class OrganizationApplicationService {
     public record InternalAccess(String timezone, String role) {}
     public record Workspace(OrganizationController.OrganizationView organization,
                             OrganizationController.EmployeeView employee, String systemRole,
+                            String departmentName, List<String> permissionGroups,
                             List<String> modules, Map<String, String> scopes) {}
 
     private void requireMember(UUID organizationId, UUID actor, boolean root) {

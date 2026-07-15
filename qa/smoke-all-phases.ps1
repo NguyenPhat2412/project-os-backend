@@ -224,7 +224,7 @@ try {
     Expect-Status (Invoke-Api -Method POST -Path "/api/v1/organizations/$organizationId/attendance/check-in" -Session $session -Headers $csrf) 200 "Attendance check-in" | Out-Null
     Expect-Status (Invoke-Api -Method POST -Path "/api/v1/organizations/$organizationId/attendance/check-in" -Session $session -Headers $csrf) 409 "Duplicate check-in prevention" | Out-Null
     Expect-Status (Invoke-Api -Method POST -Path "/api/v1/organizations/$organizationId/attendance/check-out" -Session $session -Headers $csrf) 200 "Attendance check-out" | Out-Null
-    Expect-Status (Invoke-Api -Method GET -Path "/api/v1/organizations/$organizationId/attendance/timesheet?from=$today&to=$today" -Session $session) 200 "Timesheet read model" | Out-Null
+    Expect-Status (Invoke-Api -Method GET -Path "/api/v1/organizations/$organizationId/attendance/timesheet?employeeId=$employeeId&from=$today&to=$today" -Session $session) 200 "Timesheet read model" | Out-Null
 
     $adjustment = Expect-Status (Invoke-Api -Method POST -Path "/api/v1/organizations/$organizationId/attendance/adjustments" -Session $session -Headers $csrf `
         -Body @{ workDate = $today; checkInAt = (Get-Date).ToUniversalTime().AddHours(-8).ToString("o"); reason = "QA verified adjustment" }) 201 "Attendance adjustment request"
@@ -236,8 +236,8 @@ try {
         -Body @{ startDate = $leaveDate; endDate = $leaveDate; reason = "QA leave workflow" }) 201 "Leave request create"
     Expect-Status (Invoke-Api -Method POST -Path "/api/v1/organizations/$organizationId/attendance/leave-requests/$($leave.Json.data.id)/decision" -Session $session -Headers $csrf `
         -Body @{ decision = "approve"; note = "QA approval" }) 200 "Leave request approval" | Out-Null
-    Expect-Status (Invoke-Api -Method GET -Path "/api/v1/organizations/$organizationId/attendance/reports/daily?date=$today" -Session $session) 200 "Daily attendance report" | Out-Null
-    Expect-Status (Invoke-Api -Method GET -Path "/api/v1/organizations/$organizationId/attendance/reports/monthly?month=$((Get-Date).ToString('yyyy-MM'))" -Session $session) 200 "Monthly attendance report" | Out-Null
+    Expect-Status (Invoke-Api -Method GET -Path "/api/v1/organizations/$organizationId/attendance/reports/daily?employeeId=$employeeId&date=$today" -Session $session) 200 "Daily attendance report" | Out-Null
+    Expect-Status (Invoke-Api -Method GET -Path "/api/v1/organizations/$organizationId/attendance/reports/monthly?employeeId=$employeeId&month=$((Get-Date).ToString('yyyy-MM'))" -Session $session) 200 "Monthly attendance report" | Out-Null
 
     # Phase 3: project, membership, work resources and reorder.
     $project = Expect-Status (Invoke-Api -Method POST -Path "/api/v1/projects" -Session $session -Headers $csrf `

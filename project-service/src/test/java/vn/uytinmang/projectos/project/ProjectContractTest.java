@@ -67,7 +67,18 @@ class ProjectContractTest {
                 .andExpect(jsonPath("$.data.ownerId").value(actorId.toString()))
                 .andExpect(jsonPath("$.data.organizationId").value(organizationId.toString()));
 
-        UUID projectId = projects.findAll().getFirst().getId();
+        UUID otherOrganizationId = UUID.randomUUID();
+        mvc.perform(post("/api/v1/projects").with(admin).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Other organization\",\"organizationId\":\"" + otherOrganizationId + "\"}"))
+                .andExpect(status().isCreated());
+        mvc.perform(get("/api/v1/projects?organizationId=" + organizationId).with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.total").value(1))
+                .andExpect(jsonPath("$.data[0].organizationId").value(organizationId.toString()));
+
+        UUID projectId = projects.findAll().stream()
+                .filter(project -> "PostgreSQL Project".equals(project.getName()))
+                .findFirst().orElseThrow().getId();
         mvc.perform(put("/api/v1/projects/" + projectId + "/settings/dashboard").with(admin)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"layout\":\"compact\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.layout").value("compact"));

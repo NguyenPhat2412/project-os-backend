@@ -54,6 +54,9 @@ class AttendanceContractTest {
         mvc.perform(post(base+"/check-in").with(actor)).andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("open"));
         mvc.perform(post(base+"/check-in").with(actor)).andExpect(status().isConflict());
         mvc.perform(post(base+"/check-out").with(actor)).andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("completed"));
+        mvc.perform(get(base+"/timesheet").with(actor)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.total").value(1))
+                .andExpect(jsonPath("$.data[0].employeeId").value(employeeId.toString()));
 
         String adjustmentId=id(mvc.perform(post(base+"/adjustments").with(actor).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"workDate\":\""+LocalDate.now()+"\",\"checkInAt\":\""+Instant.now().minusSeconds(60)+"\",\"reason\":\"Correction\"}"))
