@@ -79,6 +79,12 @@ class PersonalWorkController {
         return page(records(projectId, "daily-reports").stream().filter(record -> ownedBy(record, actor)).toList());
     }
 
+    @GetMapping("/api/v1/me/daily-reports/recipient")
+    ApiResponse<WorkAccessClient.ReportRecipient> reportRecipient(@RequestParam UUID organizationId,
+                                                                    @AuthenticationPrincipal Jwt jwt) {
+        return ApiResponse.of(access.reportRecipient(organizationId, actor(jwt), root(jwt)));
+    }
+
     @PostMapping("/api/v1/me/daily-reports")
     @ResponseStatus(HttpStatus.CREATED)
     ApiResponse<JsonNode> submitReport(@Valid @RequestBody DailyReportRequest request,
@@ -88,6 +94,12 @@ class PersonalWorkController {
         LocalDate date;
         try { date = LocalDate.parse(request.date()); }
         catch (DateTimeParseException exception) { throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_date", "date must use ISO-8601"); }
+        WorkAccessClient.ReportRecipient recipient = request.organizationId() == null ? null
+                : access.reportRecipient(request.organizationId(), actor, root(jwt));
+        if (request.recipientId() != null && (recipient == null || !request.recipientId().equals(recipient.userId()))) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "report_recipient_denied",
+                    "A daily report can only be sent to the direct manager");
+        }
         ObjectNode body = tools.jackson.databind.node.JsonNodeFactory.instance.objectNode();
         body.put("legacyId", "DAILY-" + actor + "-" + date);
         body.put("userId", actor.toString());
@@ -95,6 +107,11 @@ class PersonalWorkController {
         body.put("summary", request.summary().trim());
         if (request.blockers() != null) body.put("blockers", request.blockers().trim());
         if (request.nextPlan() != null) body.put("nextPlan", request.nextPlan().trim());
+        if (recipient != null) {
+            body.put("recipientId", recipient.userId().toString());
+            body.put("recipientName", recipient.fullName());
+            if (recipient.title() != null) body.put("recipientTitle", recipient.title());
+        }
         return ApiResponse.of(resources.create(request.projectId(), "daily-reports", body, actor));
     }
 
@@ -134,7 +151,7 @@ class PersonalWorkController {
                 .filter(record -> date == null || date.equals(record.getPayload().path("date").asText())).toList());
         Set<UUID> reports = access.directReportUsers(organizationId, actor, root(jwt));
         return page(records(projectId, "daily-reports").stream()
-                .filter(record -> assignedTo(record, reports))
+                .filter(record -> deliveredTo(record, actor, reports))
                 .filter(record -> date == null || date.equals(record.getPayload().path("date").asText()))
                 .toList());
     }
@@ -165,6 +182,11 @@ class PersonalWorkController {
                 .asText(record.getPayload().path("userId").asText());
         try { return users.contains(UUID.fromString(value)); } catch (IllegalArgumentException exception) { return false; }
     }
+    private boolean deliveredTo(ResourceRecord record, UUID actor, Set<UUID> directReports) {
+        String recipientId = record.getPayload().path("recipientId").asText(null);
+        if (recipientId == null || recipientId.isBlank()) return assignedTo(record, directReports);
+        return actor.toString().equals(recipientId);
+    }
     private UUID actor(Jwt jwt) { return UUID.fromString(jwt.getClaimAsString("uid")); }
     private boolean root(Jwt jwt) { return "ROOT_ADMIN".equals(jwt.getClaimAsString("role")); }
     private ApiException forbidden() { return new ApiException(HttpStatus.FORBIDDEN, "task_scope_denied", "You can only access your assigned tasks"); }
@@ -177,7 +199,7 @@ class PersonalWorkController {
     }
 
     record StatusRequest(@NotBlank @Size(max = 40) String status) {}
-    record DailyReportRequest(@NotNull UUID projectId, @NotBlank String date,
+    record DailyReportRequest(@NotNull UUID projectId, UUID organizationId, UUID recipientId, @NotBlank String date,
                               @NotBlank @Size(max = 4000) String summary,
                               @Size(max = 2000) String blockers, @Size(max = 2000) String nextPlan) {}
 }

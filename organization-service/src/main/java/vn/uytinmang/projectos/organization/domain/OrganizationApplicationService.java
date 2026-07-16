@@ -2,6 +2,7 @@ package vn.uytinmang.projectos.organization.domain;
 
 import java.time.ZoneId;
 import java.time.zone.ZoneRulesException;
+import java.math.BigDecimal;
 import java.util.Locale;
 import java.util.List;
 import java.util.LinkedHashMap;
@@ -24,18 +25,22 @@ public class OrganizationApplicationService {
     private final OrganizationRepository organizations;
     private final DepartmentRepository departments;
     private final EmployeeRepository employees;
+    private final EmployeeCompensationRepository compensations;
+    private final CompanyPolicyRepository policies;
     private final OrganizationMembershipRepository memberships;
     private final PermissionGroupService permissionGroups;
     private final WorkspaceCache workspaceCache;
     private final OrganizationAuditService audit;
 
     OrganizationApplicationService(OrganizationRepository organizations, DepartmentRepository departments,
-                                   EmployeeRepository employees, OrganizationMembershipRepository memberships,
+                                   EmployeeRepository employees, EmployeeCompensationRepository compensations, CompanyPolicyRepository policies, OrganizationMembershipRepository memberships,
                                    PermissionGroupService permissionGroups, WorkspaceCache workspaceCache,
                                    OrganizationAuditService audit) {
         this.organizations = organizations;
         this.departments = departments;
         this.employees = employees;
+        this.compensations = compensations;
+        this.policies = policies;
         this.memberships = memberships;
         this.permissionGroups = permissionGroups;
         this.workspaceCache = workspaceCache;
@@ -51,7 +56,8 @@ public class OrganizationApplicationService {
     }
 
     @Transactional
-    public OrganizationController.OrganizationView create(OrganizationController.OrganizationRequest request, UUID actor) {
+    public OrganizationController.OrganizationView create(OrganizationController.OrganizationRequest request, UUID actor, boolean root) {
+        if (!root) throw new ApiException(HttpStatus.FORBIDDEN, "root_admin_required", "Root admin access is required");
         String slug = slug(request.slug(), request.name());
         if (organizations.findBySlug(slug).isPresent()) throw conflict("organization_slug_exists", "Organization slug already exists");
         Organization organization = organizations.save(new Organization(request.name().trim(), slug, timezone(request.timezone()), actor));
@@ -76,6 +82,31 @@ public class OrganizationApplicationService {
         organization.update(clean(request.name()), nextSlug, request.timezone() == null ? null : timezone(request.timezone()), status(request.status(), Organization.Status.class));
         workspaceCache.invalidateOrganization(id);
         return OrganizationController.OrganizationView.from(organization);
+    }
+
+    @Transactional(readOnly = true)
+    public OrganizationController.CompanyPolicyView companyPolicy(UUID organizationId, UUID actor, boolean root) {
+        requireMember(organizationId, actor, root);
+        requireOrganization(organizationId);
+        return policies.findById(organizationId).map(OrganizationController.CompanyPolicyView::from)
+                .orElseGet(() -> defaultCompanyPolicy(organizationId));
+    }
+
+    @Transactional
+    public OrganizationController.CompanyPolicyView updateCompanyPolicy(UUID organizationId,
+                                                                          OrganizationController.CompanyPolicyRequest request,
+                                                                          UUID actor, boolean root) {
+        requireAdmin(organizationId, actor, root);
+        requireOrganization(organizationId);
+        validateCompanyPolicy(request);
+        List<String> rules = request.rules().stream().map(String::trim).filter(value -> !value.isEmpty()).toList();
+        CompanyPolicy policy = policies.findById(organizationId).orElseGet(() -> new CompanyPolicy(organizationId,
+                request.morningStart(), request.morningEnd(), request.afternoonStart(), request.afternoonEnd(), rules, actor));
+        policy.update(request.morningStart(), request.morningEnd(), request.afternoonStart(), request.afternoonEnd(), rules, actor);
+        CompanyPolicy saved = policies.save(policy);
+        audit.record(organizationId, actor, "company_policy_updated", "company_policy", organizationId,
+                null, Map.of("ruleCount", rules.size()), null);
+        return OrganizationController.CompanyPolicyView.from(saved);
     }
 
     @Transactional(readOnly = true)
@@ -183,6 +214,36 @@ public class OrganizationApplicationService {
     }
 
     @Transactional(readOnly = true)
+    public OrganizationController.CompensationView compensation(UUID organizationId, UUID employeeId, UUID actor, boolean root) {
+        Employee employee = requireEmployee(organizationId, employeeId);
+        if (!root) {
+            OrganizationMembership.Role role = memberRole(organizationId, actor, false);
+            boolean canRead = role == OrganizationMembership.Role.OWNER || role == OrganizationMembership.Role.ADMIN
+                    || actor.equals(employee.getUserId());
+            if (!canRead) throw new ApiException(HttpStatus.FORBIDDEN, "employee_compensation_access_denied",
+                    "You can only view your own compensation");
+        }
+        return compensations.findByOrganizationIdAndEmployeeId(organizationId, employeeId)
+                .map(OrganizationController.CompensationView::from).orElse(null);
+    }
+
+    @Transactional
+    public OrganizationController.CompensationView updateCompensation(UUID organizationId, UUID employeeId,
+                                                                       OrganizationController.CompensationRequest request,
+                                                                       UUID actor, boolean root) {
+        requireAdmin(organizationId, actor, root);
+        Employee employee = requireEmployee(organizationId, employeeId);
+        BigDecimal amount = request.monthlyAmount();
+        EmployeeCompensation compensation = compensations.findByOrganizationIdAndEmployeeId(organizationId, employeeId)
+                .orElseGet(() -> new EmployeeCompensation(organizationId, employeeId, amount, actor));
+        compensation.update(amount, actor);
+        EmployeeCompensation saved = compensations.save(compensation);
+        audit.record(organizationId, actor, "employee_compensation_updated", "employee_compensation", employeeId,
+                Map.of("configured", true), Map.of("configured", true), null);
+        return OrganizationController.CompensationView.from(saved);
+    }
+
+    @Transactional(readOnly = true)
     public PageResponse<OrganizationController.MembershipView> memberships(UUID organizationId, int page, int size, UUID actor, boolean root) {
         requireHrOrAdmin(organizationId, actor, root);
         var result = memberships.findByOrganizationId(organizationId, page(page, size)).map(OrganizationController.MembershipView::from);
@@ -198,6 +259,7 @@ public class OrganizationApplicationService {
         if (membership == null) membership = new OrganizationMembership(organizationId, request.userId(), role(request.role()));
         membership.update(role(request.role()), membershipStatus(request.status()));
         OrganizationMembership saved = memberships.save(membership);
+        synchronizeEmployee(organizationId, request, actor);
         audit.record(organizationId, actor, before == null ? "membership_created" : "membership_updated",
                 "organization_membership", saved.getId(), before, membershipSnapshot(saved), null);
         workspaceCache.invalidateSubject(request.userId());
@@ -237,8 +299,7 @@ public class OrganizationApplicationService {
                 || membershipRole == OrganizationMembership.Role.ADMIN ? "PLATFORM_ADMIN"
                 : membershipRole == OrganizationMembership.Role.DEPARTMENT_MANAGER ? "DEPARTMENT_MANAGER"
                 : membershipRole == OrganizationMembership.Role.HR ? "HR" : "EMPLOYEE";
-        Set<String> modules = root ? defaultModules(systemRole)
-                : permissionGroups.assignedModules(organization.getId(), actor).orElseGet(() -> defaultModules(systemRole));
+        Set<String> modules = workspaceModules(organization.getId(), actor, systemRole, root);
         String departmentName = employee == null || employee.getDepartmentId() == null ? null
                 : departments.findById(employee.getDepartmentId()).map(Department::getName).orElse(null);
         Map<String, String> scopes = switch (systemRole) {
@@ -343,21 +404,74 @@ public class OrganizationApplicationService {
     private String timezone(String value) { try { return ZoneId.of(value == null || value.isBlank() ? "Asia/Ho_Chi_Minh" : value).getId(); } catch (ZoneRulesException exception) { throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_timezone", "Invalid timezone"); } }
     private String email(String value) { return value.trim().toLowerCase(Locale.ROOT); }
     private String clean(String value) { return value == null || value.isBlank() ? null : value.trim(); }
+    private void synchronizeEmployee(UUID organizationId, OrganizationController.MembershipRequest request, UUID actor) {
+        boolean hasName = request.fullName() != null;
+        boolean hasEmail = request.email() != null;
+        if (!hasName && !hasEmail) return;
+        if (!hasName || !hasEmail || clean(request.fullName()) == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_member_profile", "Full name and email must be provided together");
+        }
+        String fullName = clean(request.fullName());
+        String email = email(request.email());
+        Employee byUser = employees.findByOrganizationIdAndUserId(organizationId, request.userId()).orElse(null);
+        Employee byEmail = employees.findByOrganizationIdAndEmailIgnoreCase(organizationId, email).orElse(null);
+        if (byUser != null && byEmail != null && !byUser.getId().equals(byEmail.getId())) {
+            throw conflict("employee_email_already_linked", "Email is already linked to another employee");
+        }
+        Employee employee = byUser != null ? byUser : byEmail;
+        if (employee != null && employee.getUserId() != null && !request.userId().equals(employee.getUserId())) {
+            throw conflict("employee_email_already_linked", "Email is already linked to another employee");
+        }
+        Map<String, Object> before = employee == null ? null : employeeSnapshot(employee);
+        if (employee == null) employee = new Employee(organizationId, null, null, fullName, email, null);
+        else employee.update(null, null, fullName, email, null, null);
+        employee.linkUser(request.userId());
+        Employee saved = employees.save(employee);
+        audit.record(organizationId, actor, before == null ? "employee_created" : "employee_synchronized",
+                "employee", saved.getId(), before, employeeSnapshot(saved), "membership_synced");
+    }
     private ApiException conflict(String code, String message) { return new ApiException(HttpStatus.CONFLICT, code, message); }
     private OrganizationMembership.Role role(String value) { try { return OrganizationMembership.Role.valueOf(value == null ? "MEMBER" : value.trim().toUpperCase(Locale.ROOT)); } catch (IllegalArgumentException exception) { throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_role", "Invalid organization role"); } }
     private OrganizationMembership.Status membershipStatus(String value) { try { return value == null ? OrganizationMembership.Status.ACTIVE : OrganizationMembership.Status.valueOf(value.trim().toUpperCase(Locale.ROOT)); } catch (IllegalArgumentException exception) { throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_membership_status", "Invalid membership status"); } }
     private <T extends Enum<T>> T status(String value, Class<T> type) { try { return value == null ? null : Enum.valueOf(type, value.trim().toUpperCase(Locale.ROOT)); } catch (IllegalArgumentException exception) { throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_status", "Invalid status"); } }
+    private void validateCompanyPolicy(OrganizationController.CompanyPolicyRequest request) {
+        if (!request.morningStart().isBefore(request.morningEnd())
+                || !request.morningEnd().isBefore(request.afternoonStart())
+                || !request.afternoonStart().isBefore(request.afternoonEnd())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_company_schedule", "Working periods must be in chronological order");
+        }
+    }
+    private OrganizationController.CompanyPolicyView defaultCompanyPolicy(UUID organizationId) {
+        return new OrganizationController.CompanyPolicyView(organizationId, "08:00", "12:00", "13:00", "17:00",
+                List.of("Làm việc từ 08:00–12:00 và 13:00–17:00, từ Thứ 2 đến Thứ 6.",
+                        "Có mặt đúng giờ, cập nhật tiến độ và bàn giao công việc đúng hạn.",
+                        "Tập trung vào công việc được giao; hạn chế việc riêng trong giờ làm việc.",
+                        "Tuân thủ quy trình, bảo mật thông tin và các quy định của công ty TTA."), null);
+    }
 
     private Set<String> defaultModules(String systemRole) {
         return switch (systemRole) {
-            case "PLATFORM_ADMIN" -> Set.of("dashboard", "projects", "tasks", "daily-reports", "attendance",
+            case "PLATFORM_ADMIN" -> Set.of("dashboard", "projects", "tasks", "daily-reports", "attendance", "company-rules",
                     "organization", "employees", "project-management", "operations", "knowledge", "activity",
                     "reports", "admin");
-            case "HR" -> Set.of("dashboard", "attendance", "organization", "employees");
-            case "DEPARTMENT_MANAGER" -> Set.of("dashboard", "projects", "tasks", "daily-reports", "attendance",
+            case "HR" -> Set.of("dashboard", "attendance", "company-rules", "organization", "employees");
+            case "DEPARTMENT_MANAGER" -> Set.of("dashboard", "projects", "tasks", "daily-reports", "attendance", "company-rules",
                     "employees", "project-management", "reports");
-            default -> Set.of("dashboard", "tasks", "daily-reports", "attendance", "profile");
+            default -> Set.of("dashboard", "tasks", "daily-reports", "attendance", "company-rules", "profile");
         };
+    }
+
+    private Set<String> workspaceModules(UUID organizationId, UUID actor, String systemRole, boolean root) {
+        if (root) return defaultModules(systemRole);
+        Optional<Set<String>> assigned = permissionGroups.assignedModules(organizationId, actor);
+        if (assigned.isPresent()) return assigned.get();
+        return permissionGroups.hasGroups(organizationId) ? baselineModules(systemRole) : defaultModules(systemRole);
+    }
+
+    private Set<String> baselineModules(String systemRole) {
+        return "PLATFORM_ADMIN".equals(systemRole)
+                ? Set.of("dashboard", "organization", "admin", "profile")
+                : Set.of("dashboard", "profile");
     }
 
     private Map<String, Object> employeeSnapshot(Employee employee) {

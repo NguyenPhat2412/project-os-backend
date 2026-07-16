@@ -18,8 +18,13 @@ interface EmployeeRepository extends JpaRepository<Employee, UUID> {
     Page<Employee> findByOrganizationId(UUID organizationId, Pageable pageable);
     Page<Employee> findByOrganizationIdAndSupervisorId(UUID organizationId, UUID supervisorId, Pageable pageable);
     Optional<Employee> findByOrganizationIdAndUserId(UUID organizationId, UUID userId);
+    Optional<Employee> findByOrganizationIdAndEmailIgnoreCase(UUID organizationId, String email);
     long countByOrganizationIdAndDepartmentId(UUID organizationId, UUID departmentId);
 }
+interface EmployeeCompensationRepository extends JpaRepository<EmployeeCompensation, UUID> {
+    Optional<EmployeeCompensation> findByOrganizationIdAndEmployeeId(UUID organizationId, UUID employeeId);
+}
+interface CompanyPolicyRepository extends JpaRepository<CompanyPolicy, UUID> {}
 interface OrganizationMembershipRepository extends JpaRepository<OrganizationMembership, UUID> {
     Optional<OrganizationMembership> findByOrganizationIdAndUserId(UUID organizationId, UUID userId);
     Page<OrganizationMembership> findByOrganizationId(UUID organizationId, Pageable pageable);

@@ -2,11 +2,17 @@ package vn.uytinmang.projectos.organization.web;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
+import java.time.LocalTime;
+import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -41,11 +47,15 @@ public class OrganizationController {
         return service.organizations(page, size, actor(jwt), root(jwt));
     }
     @PostMapping @ResponseStatus(HttpStatus.CREATED)
-    ApiResponse<OrganizationView> create(@Valid @RequestBody OrganizationRequest request, @AuthenticationPrincipal Jwt jwt) { return ApiResponse.of(service.create(request, actor(jwt))); }
+    ApiResponse<OrganizationView> create(@Valid @RequestBody OrganizationRequest request, @AuthenticationPrincipal Jwt jwt) { return ApiResponse.of(service.create(request, actor(jwt), root(jwt))); }
     @GetMapping("/{organizationId}")
     ApiResponse<OrganizationView> organization(@PathVariable UUID organizationId, @AuthenticationPrincipal Jwt jwt) { return ApiResponse.of(service.organization(organizationId, actor(jwt), root(jwt))); }
     @PatchMapping("/{organizationId}")
     ApiResponse<OrganizationView> update(@PathVariable UUID organizationId, @Valid @RequestBody OrganizationPatch request, @AuthenticationPrincipal Jwt jwt) { return ApiResponse.of(service.updateOrganization(organizationId, request, actor(jwt), root(jwt))); }
+    @GetMapping("/{organizationId}/company-policy")
+    ApiResponse<CompanyPolicyView> companyPolicy(@PathVariable UUID organizationId, @AuthenticationPrincipal Jwt jwt) { return ApiResponse.of(service.companyPolicy(organizationId, actor(jwt), root(jwt))); }
+    @PutMapping("/{organizationId}/company-policy")
+    ApiResponse<CompanyPolicyView> updateCompanyPolicy(@PathVariable UUID organizationId, @Valid @RequestBody CompanyPolicyRequest request, @AuthenticationPrincipal Jwt jwt) { return ApiResponse.of(service.updateCompanyPolicy(organizationId, request, actor(jwt), root(jwt))); }
 
     @GetMapping("/{organizationId}/departments")
     PageResponse<DepartmentView> departments(@PathVariable UUID organizationId, @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "100") int size, @AuthenticationPrincipal Jwt jwt) { return service.departments(organizationId, page, size, actor(jwt), root(jwt)); }
@@ -66,6 +76,10 @@ public class OrganizationController {
     ApiResponse<EmployeeView> linkUser(@PathVariable UUID organizationId, @PathVariable UUID employeeId, @Valid @RequestBody LinkUserRequest request, @AuthenticationPrincipal Jwt jwt) { return ApiResponse.of(service.linkUser(organizationId, employeeId, request.userId(), actor(jwt), root(jwt))); }
     @DeleteMapping("/{organizationId}/employees/{employeeId}") @ResponseStatus(HttpStatus.NO_CONTENT)
     void deleteEmployee(@PathVariable UUID organizationId, @PathVariable UUID employeeId, @AuthenticationPrincipal Jwt jwt) { service.deleteEmployee(organizationId, employeeId, actor(jwt), root(jwt)); }
+    @GetMapping("/{organizationId}/employees/{employeeId}/compensation")
+    ApiResponse<CompensationView> compensation(@PathVariable UUID organizationId, @PathVariable UUID employeeId, @AuthenticationPrincipal Jwt jwt) { return ApiResponse.of(service.compensation(organizationId, employeeId, actor(jwt), root(jwt))); }
+    @PutMapping("/{organizationId}/employees/{employeeId}/compensation")
+    ApiResponse<CompensationView> updateCompensation(@PathVariable UUID organizationId, @PathVariable UUID employeeId, @Valid @RequestBody CompensationRequest request, @AuthenticationPrincipal Jwt jwt) { return ApiResponse.of(service.updateCompensation(organizationId, employeeId, request, actor(jwt), root(jwt))); }
 
     @GetMapping("/{organizationId}/members")
     PageResponse<MembershipView> memberships(@PathVariable UUID organizationId, @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "100") int size, @AuthenticationPrincipal Jwt jwt) { return service.memberships(organizationId, page, size, actor(jwt), root(jwt)); }
@@ -77,14 +91,21 @@ public class OrganizationController {
 
     public record OrganizationRequest(@NotBlank @Size(max = 150) String name, @Pattern(regexp = "[a-zA-Z0-9-]{1,80}", message = "slug must use letters, numbers or hyphens") String slug, @Size(max = 80) String timezone) {}
     public record OrganizationPatch(@Size(min = 1, max = 150) String name, @Pattern(regexp = "[a-zA-Z0-9-]{1,80}", message = "slug must use letters, numbers or hyphens") String slug, @Size(max = 80) String timezone, String status) {}
+    public record CompanyPolicyRequest(@NotNull LocalTime morningStart, @NotNull LocalTime morningEnd,
+                                       @NotNull LocalTime afternoonStart, @NotNull LocalTime afternoonEnd,
+                                       @NotEmpty List<@NotBlank @Size(max = 500) String> rules) {}
     public record DepartmentRequest(@NotBlank @Size(max = 150) String name, UUID parentId) {}
     public record DepartmentPatch(@Size(min = 1, max = 150) String name, UUID parentId) {}
     public record EmployeeRequest(@NotBlank @Size(max = 150) String fullName, @NotBlank @Email @Size(max = 254) String email, @Size(max = 150) String title, UUID departmentId, UUID supervisorId) {}
     public record EmployeePatch(@Size(min = 1, max = 150) String fullName, @Email @Size(max = 254) String email, @Size(max = 150) String title, UUID departmentId, UUID supervisorId, String status) {}
+    public record CompensationRequest(@NotNull @DecimalMin(value = "0.00") @Digits(integer = 17, fraction = 2) BigDecimal monthlyAmount) {}
     public record LinkUserRequest(@NotNull UUID userId) {}
-    public record MembershipRequest(@NotNull UUID userId, String role, String status) {}
+    public record MembershipRequest(@NotNull UUID userId, String role, String status,
+                                    @Size(max = 150) String fullName, @Email @Size(max = 254) String email) {}
     public record OrganizationView(UUID id, String name, String slug, String timezone, String status, UUID createdBy, Instant createdAt, Instant updatedAt) { public static OrganizationView from(Organization value) { return new OrganizationView(value.getId(), value.getName(), value.getSlug(), value.getTimezone(), value.getStatus().name().toLowerCase(), value.getCreatedBy(), value.getCreatedAt(), value.getUpdatedAt()); } }
+    public record CompanyPolicyView(UUID organizationId, String morningStart, String morningEnd, String afternoonStart, String afternoonEnd, List<String> rules, Instant updatedAt) { public static CompanyPolicyView from(vn.uytinmang.projectos.organization.domain.CompanyPolicy value) { return new CompanyPolicyView(value.getOrganizationId(), value.getMorningStart().toString(), value.getMorningEnd().toString(), value.getAfternoonStart().toString(), value.getAfternoonEnd().toString(), value.getRules(), value.getUpdatedAt()); } }
     public record DepartmentView(UUID id, UUID organizationId, UUID parentId, String name, Instant createdAt, Instant updatedAt) { public static DepartmentView from(Department value) { return new DepartmentView(value.getId(), value.getOrganizationId(), value.getParentId(), value.getName(), value.getCreatedAt(), value.getUpdatedAt()); } }
     public record EmployeeView(UUID id, UUID organizationId, UUID departmentId, UUID supervisorId, UUID userId, String fullName, String email, String title, String status, Instant createdAt, Instant updatedAt) { public static EmployeeView from(Employee value) { return new EmployeeView(value.getId(), value.getOrganizationId(), value.getDepartmentId(), value.getSupervisorId(), value.getUserId(), value.getFullName(), value.getEmail(), value.getTitle(), value.getStatus().name().toLowerCase(), value.getCreatedAt(), value.getUpdatedAt()); } }
+    public record CompensationView(UUID employeeId, BigDecimal monthlyAmount, Instant updatedAt) { public static CompensationView from(vn.uytinmang.projectos.organization.domain.EmployeeCompensation value) { return new CompensationView(value.getEmployeeId(), value.getMonthlyAmount(), value.getUpdatedAt()); } }
     public record MembershipView(UUID id, UUID organizationId, UUID userId, String role, String status, Instant createdAt, Instant updatedAt) { public static MembershipView from(OrganizationMembership value) { return new MembershipView(value.getId(), value.getOrganizationId(), value.getUserId(), value.getRole().name().toLowerCase(), value.getStatus().name().toLowerCase(), value.getCreatedAt(), value.getUpdatedAt()); } }
 }

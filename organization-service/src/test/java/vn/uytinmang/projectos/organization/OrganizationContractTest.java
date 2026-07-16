@@ -40,10 +40,7 @@ class OrganizationContractTest {
     void ownerCanManageDepartmentEmployeeAndMembership() throws Exception {
         UUID ownerId = UUID.randomUUID();
         var owner = jwt().jwt(token -> token.claim("uid", ownerId.toString()).claim("role", "USER"));
-        String organizationId = mvc.perform(post("/api/v1/organizations").with(owner).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Acme Engineering\",\"slug\":\"acme\",\"timezone\":\"Asia/Ho_Chi_Minh\"}"))
-                .andExpect(status().isCreated()).andExpect(jsonPath("$.data.slug").value("acme"))
-                .andReturn().getResponse().getContentAsString().replaceAll(".*\\\"id\\\":\\\"([^\\\"]+).*", "$1");
+        String organizationId = organizationFor(ownerId, "Acme Engineering", "acme");
 
         String departmentId = mvc.perform(post("/api/v1/organizations/" + organizationId + "/departments").with(owner)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"Engineering\"}"))
@@ -61,13 +58,44 @@ class OrganizationContractTest {
     }
 
     @Test
+    void membershipSynchronizesEmployeeProfile() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        var owner = jwt().jwt(token -> token.claim("uid", ownerId.toString()).claim("role", "USER"));
+        String organizationId = organizationFor(ownerId, "Synced Org", "synced-org");
+
+        mvc.perform(put("/api/v1/organizations/" + organizationId + "/members").with(owner)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"userId\":\"" + memberId
+                                + "\",\"role\":\"MEMBER\",\"fullName\":\"Synced User\",\"email\":\"synced@example.com\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/employees").with(owner))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.meta.total").value(1))
+                .andExpect(jsonPath("$.data[0].userId").value(memberId.toString()))
+                .andExpect(jsonPath("$.data[0].fullName").value("Synced User"));
+
+        mvc.perform(put("/api/v1/organizations/" + organizationId + "/members").with(owner)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"userId\":\"" + memberId
+                                + "\",\"role\":\"MEMBER\",\"fullName\":\"Updated User\",\"email\":\"updated@example.com\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/employees").with(owner))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.meta.total").value(1))
+                .andExpect(jsonPath("$.data[0].email").value("updated@example.com"));
+
+        mvc.perform(put("/api/v1/organizations/" + organizationId + "/members").with(owner)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"userId\":\"" + UUID.randomUUID()
+                                + "\",\"role\":\"MEMBER\",\"fullName\":\"Duplicate User\",\"email\":\"updated@example.com\"}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("employee_email_already_linked"));
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/members").with(owner))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.meta.total").value(3));
+    }
+
+    @Test
     void workspaceAndEmployeeDirectoryRespectOrganizationScope() throws Exception {
         UUID ownerId = UUID.randomUUID();
         UUID managerId = UUID.randomUUID();
         UUID employeeId = UUID.randomUUID();
         var owner = jwt().jwt(token -> token.claim("uid", ownerId.toString()).claim("role", "USER"));
-        String organizationId = value(post("/api/v1/organizations"), owner,
-                "{\"name\":\"Scoped Org\",\"slug\":\"scoped-org\"}", "id");
+        String organizationId = organizationFor(ownerId, "Scoped Org", "scoped-org");
         String managerEmployeeId = value(post("/api/v1/organizations/" + organizationId + "/employees"), owner,
                 "{\"fullName\":\"Team Manager\",\"email\":\"manager@example.com\"}", "id");
         value(post("/api/v1/organizations/" + organizationId + "/employees/" + managerEmployeeId + "/link-user"),
@@ -95,13 +123,19 @@ class OrganizationContractTest {
                 .andExpect(jsonPath("$.data[0].userId").value(employeeId.toString()));
 
         String groupId = value(post("/api/v1/organizations/" + organizationId + "/permission-groups"), owner,
-                "{\"name\":\"Attendance only\",\"modules\":[\"attendance\",\"profile\"],\"memberIds\":[\""
+                "{\"name\":\"Attendance and rules\",\"modules\":[\"attendance\",\"company-rules\",\"meetings\",\"profile\"],\"memberIds\":[\""
                         + employeeId + "\"]}", "id");
-        mvc.perform(get("/api/v1/me/workspace?organizationId=" + organizationId).with(employee))
+        mvc.perform(get("/api/v1/me/workspace?organizationId=" + organizationId).with(manager))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.modules.length()").value(2))
+                .andExpect(jsonPath("$.data.modules[0]").value("dashboard"))
+                .andExpect(jsonPath("$.data.modules[1]").value("profile"));
+        mvc.perform(get("/api/v1/me/workspace?organizationId=" + organizationId).with(employee))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.modules.length()").value(4))
                 .andExpect(jsonPath("$.data.modules[0]").value("attendance"))
-                .andExpect(jsonPath("$.data.modules[1]").value("profile"))
-                .andExpect(jsonPath("$.data.permissionGroups[0]").value("Attendance only"));
+                .andExpect(jsonPath("$.data.modules[1]").value("company-rules"))
+                .andExpect(jsonPath("$.data.modules[2]").value("meetings"))
+                .andExpect(jsonPath("$.data.modules[3]").value("profile"))
+                .andExpect(jsonPath("$.data.permissionGroups[0]").value("Attendance and rules"));
         mvc.perform(patch("/api/v1/organizations/" + organizationId + "/permission-groups/" + groupId)
                         .with(owner).contentType(MediaType.APPLICATION_JSON).content("{\"memberIds\":[\""
                                 + employeeId + "\",\"" + managerId + "\"]}"))
@@ -121,8 +155,7 @@ class OrganizationContractTest {
         UUID ownerId = UUID.randomUUID();
         UUID hrId = UUID.randomUUID();
         var owner = jwt().jwt(token -> token.claim("uid", ownerId.toString()).claim("role", "USER"));
-        String organizationId = value(post("/api/v1/organizations"), owner,
-                "{\"name\":\"HR Scoped Org\",\"slug\":\"hr-scoped-org\"}", "id");
+        String organizationId = organizationFor(ownerId, "HR Scoped Org", "hr-scoped-org");
         value(put("/api/v1/organizations/" + organizationId + "/members"), owner,
                 "{\"userId\":\"" + hrId + "\",\"role\":\"HR\"}", "id");
         var hr = jwt().jwt(token -> token.claim("uid", hrId.toString()).claim("role", "USER"));
@@ -132,10 +165,83 @@ class OrganizationContractTest {
                         .content("{\"fullName\":\"HR Managed Employee\",\"email\":\"managed-by-hr@example.com\"}"))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.data.fullName").value("HR Managed Employee"));
         mvc.perform(get("/api/v1/organizations/" + organizationId + "/members").with(hr))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.meta.total").value(2));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.meta.total").value(3));
         mvc.perform(get("/api/v1/organizations/" + organizationId + "/permission-groups").with(hr))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error.code").value("organization_admin_required"));
+    }
+
+    @Test
+    void compensationIsWritableByAdminAndVisibleOnlyToTheEmployee() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID employeeUserId = UUID.randomUUID();
+        UUID otherUserId = UUID.randomUUID();
+        var owner = jwt().jwt(token -> token.claim("uid", ownerId.toString()).claim("role", "USER"));
+        String organizationId = organizationFor(ownerId, "Compensation Org", "compensation-org");
+        String employeeId = value(post("/api/v1/organizations/" + organizationId + "/employees"), owner,
+                "{\"fullName\":\"Paid Employee\",\"email\":\"paid@example.com\"}", "id");
+        value(post("/api/v1/organizations/" + organizationId + "/employees/" + employeeId + "/link-user"), owner,
+                "{\"userId\":\"" + employeeUserId + "\"}", "id");
+        String otherEmployeeId = value(post("/api/v1/organizations/" + organizationId + "/employees"), owner,
+                "{\"fullName\":\"Other Employee\",\"email\":\"other@example.com\"}", "id");
+        value(post("/api/v1/organizations/" + organizationId + "/employees/" + otherEmployeeId + "/link-user"), owner,
+                "{\"userId\":\"" + otherUserId + "\"}", "id");
+
+        mvc.perform(put("/api/v1/organizations/" + organizationId + "/employees/" + employeeId + "/compensation")
+                        .with(owner).contentType(MediaType.APPLICATION_JSON).content("{\"monthlyAmount\":12000000}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.monthlyAmount").value(12000000));
+
+        var employee = jwt().jwt(token -> token.claim("uid", employeeUserId.toString()).claim("role", "USER"));
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/employees/" + employeeId + "/compensation").with(employee))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.monthlyAmount").value(12000000));
+        mvc.perform(put("/api/v1/organizations/" + organizationId + "/employees/" + employeeId + "/compensation")
+                        .with(employee).contentType(MediaType.APPLICATION_JSON).content("{\"monthlyAmount\":1}"))
+                .andExpect(status().isForbidden());
+
+        var otherEmployee = jwt().jwt(token -> token.claim("uid", otherUserId.toString()).claim("role", "USER"));
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/employees/" + employeeId + "/compensation").with(otherEmployee))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.error.code").value("employee_compensation_access_denied"));
+    }
+
+    @Test
+    void employeeCannotCreateOrganization() throws Exception {
+        var employee = jwt().jwt(token -> token.claim("uid", UUID.randomUUID().toString()).claim("role", "USER"));
+        mvc.perform(post("/api/v1/organizations").with(employee).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Unauthorized Org\",\"slug\":\"unauthorized-org\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("root_admin_required"));
+    }
+
+    @Test
+    void companyPolicyIsReadableByEmployeesAndWritableOnlyByOrganizationAdmin() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID employeeId = UUID.randomUUID();
+        var owner = jwt().jwt(token -> token.claim("uid", ownerId.toString()).claim("role", "USER"));
+        var employee = jwt().jwt(token -> token.claim("uid", employeeId.toString()).claim("role", "USER"));
+        String organizationId = organizationFor(ownerId, "TTA", "tta-rules");
+        value(put("/api/v1/organizations/" + organizationId + "/members"), owner,
+                "{\"userId\":\"" + employeeId + "\",\"role\":\"MEMBER\"}", "id");
+
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/company-policy").with(employee))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.morningStart").value("08:00"))
+                .andExpect(jsonPath("$.data.rules.length()").value(4));
+        mvc.perform(put("/api/v1/organizations/" + organizationId + "/company-policy").with(employee)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"morningStart\":\"08:00\",\"morningEnd\":\"12:00\",\"afternoonStart\":\"13:00\",\"afternoonEnd\":\"17:00\",\"rules\":[\"Blocked\"]}"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.error.code").value("organization_admin_required"));
+        mvc.perform(put("/api/v1/organizations/" + organizationId + "/company-policy").with(owner)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"morningStart\":\"08:00\",\"morningEnd\":\"12:00\",\"afternoonStart\":\"13:00\",\"afternoonEnd\":\"17:00\",\"rules\":[\"Focus on assigned work\",\"No personal work during working hours\"]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.rules.length()").value(2));
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/company-policy").with(employee))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.rules[1]").value("No personal work during working hours"));
+    }
+
+    private String organizationFor(UUID ownerId, String name, String slug) throws Exception {
+        var root = jwt().jwt(token -> token.claim("uid", UUID.randomUUID().toString()).claim("role", "ROOT_ADMIN"));
+        String organizationId = value(post("/api/v1/organizations"), root,
+                "{\"name\":\"" + name + "\",\"slug\":\"" + slug + "\"}", "id");
+        value(put("/api/v1/organizations/" + organizationId + "/members"), root,
+                "{\"userId\":\"" + ownerId + "\",\"role\":\"OWNER\"}", "id");
+        return organizationId;
     }
 
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request(

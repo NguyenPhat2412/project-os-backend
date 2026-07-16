@@ -93,9 +93,12 @@ class AuthContractTest {
                         .content("{\"email\":\"" + email + "\",\"password\":\"" + password + "\"}"))
                 .andExpect(status().isOk())
                 .andReturn();
-        Cookie refresh = login.getResponse().getCookie("PROJECT_OS_REFRESH");
+        Cookie refresh = Arrays.stream(login.getResponse().getCookies())
+                .filter(cookie -> "PROJECT_OS_REFRESH".equals(cookie.getName()) && cookie.getMaxAge() > 0)
+                .findFirst().orElseThrow(() -> new AssertionError("Missing live refresh cookie"));
         Cookie csrf = login.getResponse().getCookie("XSRF-TOKEN");
         assertThat(refresh).isNotNull();
+        assertThat(refresh.getPath()).isEqualTo("/");
         assertThat(csrf).isNotNull();
 
         mvc.perform(post("/api/v1/auth/refresh")

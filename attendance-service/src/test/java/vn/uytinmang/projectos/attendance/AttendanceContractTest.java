@@ -70,11 +70,35 @@ class AttendanceContractTest {
         mvc.perform(post(base+"/adjustments/"+invalidAdjustmentId+"/decision").with(actor).contentType(MediaType.APPLICATION_JSON).content("{\"decision\":\"approve\"}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("invalid_adjustment_time"));
     }
+    @Test void organizationAdminCanMarkMorningAndAfternoonForEmployee() throws Exception {
+        UUID organizationId=UUID.randomUUID(), adminUserId=UUID.randomUUID(), adminEmployeeId=UUID.randomUUID(), employeeId=UUID.randomUUID();
+        when(organization.timezone(organizationId)).thenReturn("Asia/Ho_Chi_Minh");
+        when(organization.access(organizationId,adminUserId)).thenReturn(new OrganizationClient.Access("Asia/Ho_Chi_Minh","OWNER"));
+        when(organization.employeeByUser(organizationId,adminUserId)).thenReturn(new OrganizationClient.Employee(adminEmployeeId,organizationId,null,adminUserId,"active"));
+        when(organization.employee(organizationId,employeeId)).thenReturn(new OrganizationClient.Employee(employeeId,organizationId,adminEmployeeId,UUID.randomUUID(),"active"));
+        var actor=jwt().jwt(token->token.claim("uid",adminUserId.toString()).claim("role","USER"));
+        String base="/api/v1/organizations/"+organizationId+"/attendance";
+        String shiftId=id(mvc.perform(post(base+"/shifts").with(actor).contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"Day\",\"startTime\":\"08:00\",\"endTime\":\"17:00\",\"breakMinutes\":60}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+        int day=LocalDate.now().getDayOfWeek().getValue();
+        String scheduleId=id(mvc.perform(post(base+"/schedules").with(actor).contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"Week\",\"slots\":[{\"shiftId\":\""+shiftId+"\",\"dayOfWeek\":"+day+"}]}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+        mvc.perform(post(base+"/assignments").with(actor).contentType(MediaType.APPLICATION_JSON).content("{\"employeeId\":\""+employeeId+"\",\"scheduleId\":\""+scheduleId+"\",\"effectiveFrom\":\""+LocalDate.now()+"\"}")) .andExpect(status().isCreated());
+
+        String morning="{\"employeeId\":\""+employeeId+"\",\"workDate\":\""+LocalDate.now()+"\",\"period\":\"MORNING\"}";
+        String afternoon="{\"employeeId\":\""+employeeId+"\",\"workDate\":\""+LocalDate.now()+"\",\"period\":\"AFTERNOON\"}";
+        mvc.perform(post(base+"/records/manual").with(actor).contentType(MediaType.APPLICATION_JSON).content(morning)).andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("open"));
+        mvc.perform(post(base+"/records/manual").with(actor).contentType(MediaType.APPLICATION_JSON).content(afternoon)).andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("completed"));
+        mvc.perform(get(base+"/reports/monthly").param("month",LocalDate.now().toString().substring(0,7)).param("employeeId",employeeId.toString()).with(actor))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.recordedDays").value(1)).andExpect(jsonPath("$.data.items[0].checkInAt").isNotEmpty()).andExpect(jsonPath("$.data.items[0].checkOutAt").isNotEmpty());
+    }
+
     @Test void employeeOnlySeesSelfWhileManagerCanViewDirectReport() throws Exception {
         UUID organizationId=UUID.randomUUID(), managerUserId=UUID.randomUUID(), managerEmployeeId=UUID.randomUUID(), reportEmployeeId=UUID.randomUUID(), peerEmployeeId=UUID.randomUUID();
         when(organization.timezone(organizationId)).thenReturn("Asia/Ho_Chi_Minh");
         when(organization.access(organizationId,managerUserId)).thenReturn(new OrganizationClient.Access("Asia/Ho_Chi_Minh","MEMBER"));
         when(organization.employeeByUser(organizationId,managerUserId)).thenReturn(new OrganizationClient.Employee(managerEmployeeId,organizationId,null,managerUserId,"active"));
+        when(organization.employee(organizationId,managerEmployeeId)).thenReturn(new OrganizationClient.Employee(managerEmployeeId,organizationId,null,managerUserId,"active"));
         when(organization.employee(organizationId,reportEmployeeId)).thenReturn(new OrganizationClient.Employee(reportEmployeeId,organizationId,managerEmployeeId,UUID.randomUUID(),"active"));
         when(organization.employee(organizationId,peerEmployeeId)).thenReturn(new OrganizationClient.Employee(peerEmployeeId,organizationId,UUID.randomUUID(),UUID.randomUUID(),"active"));
         var actor=jwt().jwt(token->token.claim("uid",managerUserId.toString()).claim("role","USER"));
@@ -89,6 +113,8 @@ class AttendanceContractTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.employeeId").value(reportEmployeeId.toString()));
         mvc.perform(get(base+"/timesheet").param("employeeId",peerEmployeeId.toString()).with(actor))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.error.code").value("attendance_access_denied"));
+        mvc.perform(post(base+"/records/manual").with(actor).contentType(MediaType.APPLICATION_JSON).content("{\"employeeId\":\""+managerEmployeeId+"\",\"workDate\":\""+LocalDate.now()+"\",\"period\":\"MORNING\"}"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.error.code").value("manager_approval_required"));
     }
     private String id(String body) throws Exception { return json.readTree(body).path("data").path("id").asText(); }
 }

@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 import vn.uytinmang.projectos.platform.api.ApiException;
 
 @Component
@@ -70,4 +71,44 @@ class WorkAccessClient {
                     "Organization service is unavailable");
         }
     }
+
+    ReportRecipient reportRecipient(UUID organizationId, UUID actorId, boolean root) {
+        if (root || !enabled) return null;
+        try {
+            JsonNode employee = organizations.get()
+                    .uri("/api/v1/internal/organizations/{organizationId}/employees/by-user/{userId}",
+                            organizationId, actorId)
+                    .header("X-Internal-Token", token).retrieve().body(JsonNode.class);
+            String supervisorId = employee == null ? null : employee.path("data").path("supervisorId").asText(null);
+            if (supervisorId == null || supervisorId.isBlank()) return null;
+
+            JsonNode supervisor = organizations.get()
+                    .uri("/api/v1/internal/organizations/{organizationId}/employees/{employeeId}",
+                            organizationId, UUID.fromString(supervisorId))
+                    .header("X-Internal-Token", token).retrieve().body(JsonNode.class);
+            JsonNode data = supervisor == null ? null : supervisor.path("data");
+            String userId = data == null ? null : data.path("userId").asText(null);
+            if (userId == null || userId.isBlank()) return null;
+            return new ReportRecipient(UUID.fromString(userId), data.path("fullName").asText("Quản lý trực tiếp"),
+                    blankToNull(data.path("title").asText(null)));
+        } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode() == HttpStatus.NOT_FOUND) return null;
+            throw organizationUnavailable();
+        } catch (IllegalArgumentException exception) {
+            return null;
+        } catch (Exception exception) {
+            throw organizationUnavailable();
+        }
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private ApiException organizationUnavailable() {
+        return new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "organization_service_unavailable",
+                "Organization service is unavailable");
+    }
+
+    record ReportRecipient(UUID userId, String fullName, String title) {}
 }

@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 interface PermissionGroupRepository extends JpaRepository<PermissionGroup, UUID> {
     List<PermissionGroup> findByOrganizationIdOrderByNameAsc(UUID organizationId);
     Optional<PermissionGroup> findByIdAndOrganizationId(UUID id, UUID organizationId);
+    boolean existsByOrganizationId(UUID organizationId);
     boolean existsByOrganizationIdAndNameIgnoreCase(UUID organizationId, String name);
 }
 

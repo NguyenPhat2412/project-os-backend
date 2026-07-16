@@ -151,6 +151,12 @@ class WorkResourceContractTest {
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.data.userId").value(employeeId.toString()));
         mvc.perform(post("/api/v1/me/daily-reports").with(employee).contentType(MediaType.APPLICATION_JSON).content(report))
                 .andExpect(status().isConflict());
+
+        String forgedRecipient = "{\"projectId\":\"" + projectId + "\",\"organizationId\":\"" + UUID.randomUUID()
+                + "\",\"recipientId\":\"" + UUID.randomUUID() + "\",\"date\":\"2026-07-14\",\"summary\":\"Forged recipient\"}";
+        mvc.perform(post("/api/v1/me/daily-reports").with(employee).contentType(MediaType.APPLICATION_JSON)
+                        .content(forgedRecipient))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.error.code").value("report_recipient_denied"));
     }
 
     @Test

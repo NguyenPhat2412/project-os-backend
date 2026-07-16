@@ -19,8 +19,8 @@ import vn.uytinmang.projectos.platform.api.ApiException;
 @Service
 public class PermissionGroupService {
     public static final Set<String> AVAILABLE_MODULES = Set.of("dashboard", "projects", "tasks", "daily-reports",
-            "attendance", "organization", "employees", "project-management", "operations", "knowledge",
-            "activity", "reports", "admin", "profile");
+            "attendance", "company-rules", "organization", "employees", "project-management", "operations", "knowledge",
+            "meetings", "activity", "reports", "admin", "profile");
 
     private final PermissionGroupRepository groups;
     private final PermissionGroupMemberRepository groupMembers;
@@ -102,6 +102,11 @@ public class PermissionGroupService {
         Set<String> result = groups.findAllById(groupIds).stream().flatMap(group -> group.getModules().stream())
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         return Optional.of(Set.copyOf(result));
+    }
+
+    @Transactional(readOnly = true)
+    boolean hasGroups(UUID organizationId) {
+        return groups.existsByOrganizationId(organizationId);
     }
 
     @Transactional(readOnly = true)

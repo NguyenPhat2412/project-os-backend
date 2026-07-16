@@ -34,6 +34,22 @@ public class AttendanceApplicationService {
 
     @Transactional public AttendanceController.RecordView checkIn(UUID org,UUID actor,boolean root){OrganizationClient.Employee employee=employeeFor(org,actor);OrgContext context=context(org,actor,root);LocalDate workDate=LocalDate.now(context.zone());if(records.findByEmployeeIdAndWorkDate(employee.id(),workDate).isPresent())throw conflict("already_checked_in","An attendance record already exists for this work day");ShiftTiming timing=timing(org,employee.id(),workDate,context.zone());return AttendanceController.RecordView.from(records.save(new AttendanceRecord(org,employee.id(),timing.shift(),workDate,timing.start(),timing.end(),Instant.now())));}
     @Transactional public AttendanceController.RecordView checkOut(UUID org,UUID actor,boolean root){OrganizationClient.Employee employee=employeeFor(org,actor);context(org,actor,root);AttendanceRecord record=records.findFirstByEmployeeIdAndStatusOrderByWorkDateDesc(employee.id(),AttendanceRecord.Status.OPEN).orElseThrow(()->new ApiException(HttpStatus.CONFLICT,"no_open_attendance","No open attendance record to check out"));record.checkOut(Instant.now());return AttendanceController.RecordView.from(record);}
+    @Transactional public AttendanceController.RecordView markAttendancePeriod(UUID org,AttendanceController.ManualAttendanceRequest request,UUID actor,boolean root){
+        requireApprover(org,request.employeeId(),actor,root);
+        OrganizationClient.Employee employee=organization.employee(org,request.employeeId());
+        if(!"ACTIVE".equalsIgnoreCase(employee.status()))throw forbidden("employee_inactive","Employee is inactive");
+        OrgContext context=context(org,actor,root);
+        if(request.workDate().isAfter(LocalDate.now(context.zone())))throw bad("invalid_work_date","Attendance date cannot be in the future");
+        ShiftTiming timing=timing(org,employee.id(),request.workDate(),context.zone());
+        AttendanceRecord record=records.findByEmployeeIdAndWorkDate(employee.id(),request.workDate()).orElse(null);
+        if(request.period()==AttendanceController.AttendancePeriod.MORNING){
+            if(record==null)record=records.save(new AttendanceRecord(org,employee.id(),timing.shift(),request.workDate(),timing.start(),timing.end(),timing.start()));
+            return AttendanceController.RecordView.from(record);
+        }
+        if(record==null)throw conflict("morning_attendance_required","Mark the morning attendance before the afternoon");
+        if(record.getStatus()==AttendanceRecord.Status.OPEN)record.checkOut(timing.end());
+        return AttendanceController.RecordView.from(record);
+    }
     @Transactional(readOnly=true) public AttendanceController.AttendanceScopeView scope(UUID org,UUID actor,boolean root){if(root){context(org,actor,true);return new AttendanceController.AttendanceScopeView(null,true);}OrgContext context=context(org,actor,false);return new AttendanceController.AttendanceScopeView(employeeFor(org,actor).id(),context.admin());}
     @Transactional(readOnly=true) public PageResponse<AttendanceController.RecordView> records(UUID org,UUID employeeId,LocalDate from,LocalDate to,int page,int size,UUID actor,boolean root){OrgContext context=context(org,actor,root);UUID target=attendanceTarget(org,employeeId,actor,root,context);LocalDate start=from==null?LocalDate.now(context.zone()).withDayOfMonth(1):from;LocalDate end=to==null?LocalDate.now(context.zone()):to;if(end.isBefore(start))throw bad("invalid_date_range","to must be on or after from");return page(records.findRange(org,target,start,end,page(page,size)).map(AttendanceController.RecordView::from));}
     @Transactional(readOnly=true) public PageResponse<AttendanceController.TimesheetView> timesheet(UUID org,UUID employeeId,LocalDate from,LocalDate to,int page,int size,UUID actor,boolean root){PageResponse<AttendanceController.RecordView> result=records(org,employeeId,from,to,page,size,actor,root);return new PageResponse<>(result.data().stream().map(AttendanceController.TimesheetView::from).toList(),result.meta());}
