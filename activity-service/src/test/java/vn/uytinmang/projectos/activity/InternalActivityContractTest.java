@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -121,6 +122,7 @@ class InternalActivityContractTest {
     @TestConfiguration
     static class ScopeConfiguration {
         @Bean
+        @Primary
         ProjectScopeResolver projectScopeResolver() {
             UUID organizationId = UUID.fromString("11111111-1111-4111-8111-111111111111");
             return projectId -> Optional.of(organizationId);

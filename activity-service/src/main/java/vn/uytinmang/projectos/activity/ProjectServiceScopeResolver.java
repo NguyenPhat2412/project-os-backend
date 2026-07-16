@@ -5,7 +5,6 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -13,7 +12,6 @@ import org.springframework.web.client.RestClientResponseException;
 import vn.uytinmang.projectos.platform.api.ApiException;
 
 @Component
-@ConditionalOnMissingBean(ProjectScopeResolver.class)
 class ProjectServiceScopeResolver implements ProjectScopeResolver {
     private final RestClient projects;
     private final String internalToken;
