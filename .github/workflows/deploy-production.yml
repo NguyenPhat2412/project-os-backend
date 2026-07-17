@@ -38,7 +38,7 @@ jobs:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           DEPLOY_REF: ${{ inputs.ref }}
           IMAGE_TAG: ${{ inputs.image_tag }}
-          IMAGE_NAMESPACE: ${{ github.repository_owner }}
+          IMAGE_NAMESPACE: nguyenphat2412
         run: |
           {
             printf 'DEPLOY_PATH=%q\n' "$DEPLOY_PATH"
