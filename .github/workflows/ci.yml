@@ -19,7 +19,7 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - run: ./mvnw -B -q test
+      - run: bash ./mvnw -B -q test
       - run: docker compose -f compose.yaml config --quiet
 
   image-build:
