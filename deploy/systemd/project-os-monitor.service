@@ -1,0 +1,10 @@
+[Unit]
+Description=ProjectOS health, capacity and backup monitor
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/project-os
+EnvironmentFile=-/etc/project-os/monitor.env
+ExecStart=/bin/sh /opt/project-os/deploy/monitor/project-os-health.sh

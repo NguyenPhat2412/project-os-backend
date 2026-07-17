@@ -1,0 +1,11 @@
+[Unit]
+Description=Alert when ProjectOS backup fails
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/project-os
+EnvironmentFile=-/etc/project-os/monitor.env
+Environment=PROJECT_OS_MONITOR_FORCED_FAILURE=backup job failed
+ExecStart=/bin/sh /opt/project-os/deploy/monitor/project-os-health.sh

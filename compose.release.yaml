@@ -1,0 +1,29 @@
+# Immutable-release override. IMAGE_TAG must be the tested Git commit SHA published by backend-ci.
+services:
+  identity-service:
+    build: !reset null
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:?IMAGE_NAMESPACE is required}/project-os-identity-service:${IMAGE_TAG:?IMAGE_TAG is required}
+  organization-service:
+    build: !reset null
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:?IMAGE_NAMESPACE is required}/project-os-organization-service:${IMAGE_TAG:?IMAGE_TAG is required}
+  attendance-service:
+    build: !reset null
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:?IMAGE_NAMESPACE is required}/project-os-attendance-service:${IMAGE_TAG:?IMAGE_TAG is required}
+  project-service:
+    build: !reset null
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:?IMAGE_NAMESPACE is required}/project-os-project-service:${IMAGE_TAG:?IMAGE_TAG is required}
+  work-service:
+    build: !reset null
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:?IMAGE_NAMESPACE is required}/project-os-work-service:${IMAGE_TAG:?IMAGE_TAG is required}
+  operations-service:
+    build: !reset null
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:?IMAGE_NAMESPACE is required}/project-os-operations-service:${IMAGE_TAG:?IMAGE_TAG is required}
+  knowledge-service:
+    build: !reset null
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:?IMAGE_NAMESPACE is required}/project-os-knowledge-service:${IMAGE_TAG:?IMAGE_TAG is required}
+  activity-service:
+    build: !reset null
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:?IMAGE_NAMESPACE is required}/project-os-activity-service:${IMAGE_TAG:?IMAGE_TAG is required}
+  api-gateway:
+    build: !reset null
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:?IMAGE_NAMESPACE is required}/project-os-api-gateway:${IMAGE_TAG:?IMAGE_TAG is required}

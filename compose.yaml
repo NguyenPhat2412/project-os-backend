@@ -295,6 +295,7 @@ services:
       dockerfile: Dockerfile
       args: { MODULE: api-gateway }
     restart: unless-stopped
+    mem_limit: 384m
     environment:
       SERVER_ADDRESS: 0.0.0.0
       JWT_SECRET: ${JWT_SECRET}

@@ -4,9 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Git ref to deploy
+        description: Tested Git commit SHA to deploy
         required: true
         default: main
+      image_tag:
+        description: Immutable GHCR image tag built by backend-ci (normally the same commit SHA)
+        required: true
 
 permissions:
   contents: read
@@ -16,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v6
       - name: Configure SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -34,5 +37,22 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           DEPLOY_REF: ${{ inputs.ref }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          IMAGE_NAMESPACE: ${{ github.repository_owner }}
         run: |
-          ssh "$DEPLOY_USER@$DEPLOY_HOST" "set -eu; cd '$DEPLOY_PATH'; test -z \"\$(git status --porcelain)\"; git rev-parse HEAD > .previous-deploy-ref; PROJECT_OS_ENV_FILE='$DEPLOY_PATH/.env.production' ./deploy/backup/backup-project-os.sh; git fetch origin '$DEPLOY_REF'; git checkout --detach FETCH_HEAD; docker compose --parallel 1 --env-file .env.production -f compose.yaml -f compose.prod.yaml up -d --build --wait --wait-timeout 300; curl -fsS http://127.0.0.1:18080/actuator/health; docker compose --env-file .env.production -f compose.yaml -f compose.prod.yaml ps"
+          {
+            printf 'DEPLOY_PATH=%q\n' "$DEPLOY_PATH"
+            printf 'DEPLOY_REF=%q\n' "$DEPLOY_REF"
+            printf 'IMAGE_TAG=%q\n' "$IMAGE_TAG"
+            printf 'IMAGE_NAMESPACE=%q\n' "$IMAGE_NAMESPACE"
+            cat <<'REMOTE'
+          set -eu
+          cd "$DEPLOY_PATH"
+          test -z "$(git status --porcelain)"
+          git rev-parse HEAD > .previous-deploy-ref
+          git fetch origin "$DEPLOY_REF"
+          git checkout --detach FETCH_HEAD
+          DEPLOY_REF="$(git rev-parse HEAD)" IMAGE_TAG="$IMAGE_TAG" IMAGE_NAMESPACE="$IMAGE_NAMESPACE" PROJECT_OS_ENV_FILE="$DEPLOY_PATH/.env.production" bash ./deploy/release/deploy-image.sh
+          docker compose --env-file .env.production -f compose.yaml -f compose.prod.yaml -f compose.release.yaml ps
+          REMOTE
+          } | ssh "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s'

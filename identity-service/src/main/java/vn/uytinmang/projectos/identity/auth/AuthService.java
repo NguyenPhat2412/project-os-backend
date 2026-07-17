@@ -2,6 +2,8 @@ package vn.uytinmang.projectos.identity.auth;
 
 import java.util.Locale;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -12,6 +14,7 @@ import vn.uytinmang.projectos.platform.api.ApiException;
 
 @Service
 class AuthService {
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
     private final UserAccountRepository users;
     private final PasswordEncoder passwords;
     private final TokenService tokens;
@@ -73,6 +76,7 @@ class AuthService {
     private String normalize(String email) { return email.trim().toLowerCase(Locale.ROOT); }
 
     private ApiException invalidCredentials() {
+        log.warn("auth_login_failed");
         return new ApiException(HttpStatus.UNAUTHORIZED, "invalid_credentials", "Invalid email or password");
     }
 

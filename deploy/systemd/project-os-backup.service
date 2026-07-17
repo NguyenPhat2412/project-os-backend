@@ -2,6 +2,7 @@
 Description=ProjectOS PostgreSQL and MinIO backup
 After=docker.service
 Requires=docker.service
+OnFailure=project-os-backup-failure-alert.service
 
 [Service]
 Type=oneshot
