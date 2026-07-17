@@ -1,8 +1,11 @@
 package vn.uytinmang.projectos.project.application;
 
 import tools.jackson.databind.ObjectMapper;
+import java.time.LocalDate;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -17,6 +20,8 @@ import vn.uytinmang.projectos.resource.OutboxPublisher;
 
 @Service
 public class ProjectApplicationService {
+    private static final Pattern QUARTER_PATTERN = Pattern.compile("^Q([1-4])\\s+(\\d{4})$");
+
     private final ProjectRepository projects;
     private final OutboxPublisher outbox;
     private final ObjectMapper mapper;
@@ -66,10 +71,13 @@ public class ProjectApplicationService {
         }
         organizations.requireProjectManager(request.organizationId(), actorId, rootAdmin);
         UUID effectiveOwnerId = rootAdmin && request.ownerId() != null ? request.ownerId() : actorId;
+        String currentSprint = clean(request.currentSprint());
+        String quarter = clean(request.quarter());
+        validateSchedule(quarter, request.startDate(), request.endDate());
         Project project = new Project(request.name().trim(), clean(request.description()),
                 status(request.status(), Project.Status.ACTIVE), defaulted(request.icon(), "P"),
-                defaulted(request.color(), "from-violet-500 to-purple-600"), clean(request.currentSprint()),
-                clean(request.quarter()), request.startDate(), request.endDate(), request.techStack(),
+                defaulted(request.color(), "from-violet-500 to-purple-600"), currentSprint,
+                quarter, request.startDate(), request.endDate(), request.techStack(),
                 request.teamSize(), effectiveOwnerId, request.organizationId());
         project.setLegacyId(legacyId);
         ProjectController.ProjectView view = ProjectController.ProjectView.from(projects.save(project));
@@ -81,9 +89,15 @@ public class ProjectApplicationService {
     public ProjectController.ProjectView update(UUID id, ProjectController.ProjectPatch request, UUID actorId, boolean rootAdmin) {
         Project project = find(id);
         requireProjectAccess(project, actorId, rootAdmin, "update");
+        String currentSprint = clean(request.currentSprint());
+        String quarter = clean(request.quarter());
+        LocalDate effectiveQuarterStart = request.startDate() != null ? request.startDate() : project.getStartDate();
+        LocalDate effectiveQuarterEnd = request.endDate() != null ? request.endDate() : project.getEndDate();
+        String effectiveQuarter = request.quarter() != null ? quarter : project.getQuarter();
+        validateSchedule(effectiveQuarter, effectiveQuarterStart, effectiveQuarterEnd);
         project.update(trimmed(request.name()), clean(request.description()), status(request.status(), null),
-                trimmed(request.icon()), trimmed(request.color()), clean(request.currentSprint()),
-                clean(request.quarter()), request.startDate(), request.endDate(), request.techStack(),
+                trimmed(request.icon()), trimmed(request.color()), currentSprint,
+                quarter, request.startDate(), request.endDate(), request.techStack(),
                 request.teamSize());
         ProjectController.ProjectView view = ProjectController.ProjectView.from(project);
         outbox.record(id, "projects", id.toString(), "updated", mapper.valueToTree(view), actorId);
@@ -125,4 +139,31 @@ public class ProjectApplicationService {
     private String trimmed(String value) { return value == null ? null : value.trim(); }
     private String clean(String value) { return value == null || value.isBlank() ? null : value.trim(); }
     private String defaulted(String value, String fallback) { return value == null || value.isBlank() ? fallback : value.trim(); }
+
+    private void validateSchedule(String quarter, LocalDate startDate, LocalDate endDate) {
+        if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_project_schedule",
+                    "Start date must be on or before end date");
+        }
+        if (quarter == null) return;
+
+        Matcher matcher = QUARTER_PATTERN.matcher(quarter);
+        if (!matcher.matches()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_project_schedule",
+                    "Quarter must use the format Q1 2026");
+        }
+        if (startDate == null || endDate == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_project_schedule",
+                    "Projects assigned to a quarter require start and end dates");
+        }
+
+        int quarterNumber = Integer.parseInt(matcher.group(1));
+        int year = Integer.parseInt(matcher.group(2));
+        LocalDate quarterStart = LocalDate.of(year, (quarterNumber - 1) * 3 + 1, 1);
+        LocalDate quarterEnd = quarterStart.plusMonths(3).minusDays(1);
+        if (startDate.isBefore(quarterStart) || endDate.isAfter(quarterEnd)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_project_schedule",
+                    "Project dates must fall within " + quarter);
+        }
+    }
 }

@@ -2,6 +2,7 @@ package vn.uytinmang.projectos.project;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -142,5 +143,35 @@ class ProjectContractTest {
                         .header("X-Internal-Token", "test-internal-token")
                         .param("actorId", developerId.toString()).param("resource", "projects").param("action", "read"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.allowed").value(true));
+    }
+
+    @Test
+    void quarterScheduleMustStayInsideTheSelectedQuarter() throws Exception {
+        UUID actorId = UUID.randomUUID();
+        var admin = jwt().jwt(token -> token.claim("uid", actorId.toString()).claim("role", "ROOT_ADMIN"))
+                .authorities(new SimpleGrantedAuthority("ROLE_ROOT_ADMIN"));
+        UUID organizationId = UUID.randomUUID();
+
+        mvc.perform(post("/api/v1/projects").with(admin).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Quarterly Project\",\"organizationId\":\"" + organizationId
+                                + "\",\"quarter\":\"Q2 2026\",\"startDate\":\"2026-04-01\",\"endDate\":\"2026-06-30\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.quarter").value("Q2 2026"))
+                .andExpect(jsonPath("$.data.startDate").value("2026-04-01"))
+                .andExpect(jsonPath("$.data.endDate").value("2026-06-30"));
+
+        mvc.perform(post("/api/v1/projects").with(admin).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Invalid Quarter\",\"organizationId\":\"" + organizationId
+                                + "\",\"quarter\":\"Q2 2026\",\"startDate\":\"2026-04-01\",\"endDate\":\"2026-07-01\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_project_schedule"));
+
+        UUID projectId = projects.findAll().stream()
+                .filter(project -> "Quarterly Project".equals(project.getName()))
+                .findFirst().orElseThrow().getId();
+        mvc.perform(patch("/api/v1/projects/" + projectId).with(admin).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quarter\":\"Q3 2026\",\"startDate\":\"2026-07-01\",\"endDate\":\"2026-10-01\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_project_schedule"));
     }
 }
