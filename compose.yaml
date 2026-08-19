@@ -17,7 +17,9 @@ x-service: &service
 
 services:
   postgres:
-    image: postgres:17-alpine
+    build:
+      context: .
+      dockerfile: deploy/postgres/Dockerfile
     restart: unless-stopped
     environment:
       POSTGRES_DB: project_os
@@ -33,7 +35,6 @@ services:
       ACTIVITY_DB_PASSWORD: ${ACTIVITY_DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./deploy/postgres/init-services.sh:/docker-entrypoint-initdb.d/01-services.sh:ro
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-15433}:5432"
     healthcheck:

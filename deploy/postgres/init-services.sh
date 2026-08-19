@@ -37,5 +37,8 @@ create schema if not exists knowledge authorization knowledge_app;
 create schema if not exists activity authorization activity_app;
 grant connect on database project_os to identity_app, organization_app, attendance_app, project_app, work_app, operations_app,
     knowledge_app, activity_app;
+create extension if not exists pg_trgm;
+create extension if not exists "uuid-ossp";
+create extension if not exists pgcrypto;
 revoke create on schema public from public;
 EOSQL

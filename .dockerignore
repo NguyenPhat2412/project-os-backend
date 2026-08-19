@@ -23,4 +23,6 @@
 !activity-service/**
 !api-gateway/
 !api-gateway/**
+!deploy/
+!deploy/**
 **/target
