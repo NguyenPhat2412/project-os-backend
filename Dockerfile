@@ -8,7 +8,8 @@ RUN --mount=type=cache,target=/root/.m2 mvn -pl "${MODULE}" -am package -DskipTe
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 ARG MODULE
-COPY --from=build "/workspace/${MODULE}/target/${MODULE}-0.1.0-SNAPSHOT.jar" app.jar
+COPY --from=build /workspace/${MODULE}/target/ ./target/
+RUN if [ -f ./target/*exec.jar ]; then cp ./target/*exec.jar app.jar; else cp ./target/*SNAPSHOT.jar app.jar; fi && rm -rf ./target
 RUN addgroup -S app && adduser -S app -G app
 USER app
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75"

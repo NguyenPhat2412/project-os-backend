@@ -17,8 +17,8 @@ public class GoogleOAuthSuccessHandler implements AuthenticationSuccessHandler {
     private final AuthCookieService cookies;
     private final String successUrl;
 
-    GoogleOAuthSuccessHandler(AuthService auth, AuthCookieService cookies,
-                              @Value("${app.google.success-url:http://localhost:3000/projects}") String successUrl) {
+    public GoogleOAuthSuccessHandler(AuthService auth, AuthCookieService cookies,
+                                     @Value("${app.google.success-url:http://localhost:3000/projects}") String successUrl) {
         this.auth = auth;
         this.cookies = cookies;
         this.successUrl = successUrl;

@@ -23,7 +23,10 @@ import vn.uytinmang.projectos.platform.security.CookieBearerTokenResolver;
 import vn.uytinmang.projectos.platform.security.CookieCsrfFilter;
 import vn.uytinmang.projectos.platform.api.ApiSecurityErrorHandler;
 
-@Configuration
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
+@Configuration("resourceSecurityConfiguration")
+@ConditionalOnProperty(name = "app.monolith.enabled", havingValue = "false", matchIfMissing = true)
 @EnableMethodSecurity
 @EnableScheduling
 public class ResourceSecurityConfiguration {

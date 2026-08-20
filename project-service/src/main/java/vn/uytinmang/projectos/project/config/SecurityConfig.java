@@ -22,7 +22,10 @@ import vn.uytinmang.projectos.platform.security.CookieCsrfFilter;
 import vn.uytinmang.projectos.platform.api.ApiSecurityErrorHandler;
 import vn.uytinmang.projectos.resource.ProjectPermissionFilter;
 
-@Configuration
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
+@Configuration("projectSecurityConfig")
+@ConditionalOnProperty(name = "app.monolith.enabled", havingValue = "false", matchIfMissing = true)
 @EnableMethodSecurity
 class SecurityConfig {
     @Bean JwtDecoder jwtDecoder(@Value("${app.jwt.secret}") String secret) {

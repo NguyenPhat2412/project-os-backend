@@ -24,7 +24,7 @@ class AttachmentStorageService {
     private final MinioClient minio;
     private final String bucket;
 
-    AttachmentStorageService(MinioClient minio, @Value("${app.storage.bucket}") String bucket) {
+    AttachmentStorageService(MinioClient minio, @Value("${app.storage.bucket:project-os}") String bucket) {
         this.minio = minio;
         this.bucket = bucket;
     }

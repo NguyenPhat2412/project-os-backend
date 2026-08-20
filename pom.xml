@@ -26,6 +26,7 @@
         <module>knowledge-service</module>
         <module>activity-service</module>
         <module>api-gateway</module>
+        <module>monolith-service</module>
     </modules>
 
     <properties>
@@ -62,6 +63,9 @@
                 <plugin>
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-maven-plugin</artifactId>
+                    <configuration>
+                        <classifier>exec</classifier>
+                    </configuration>
                 </plugin>
             </plugins>
         </pluginManagement>

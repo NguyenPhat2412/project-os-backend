@@ -27,7 +27,10 @@ import vn.uytinmang.projectos.platform.security.CookieCsrfFilter;
 import vn.uytinmang.projectos.platform.api.ApiSecurityErrorHandler;
 import vn.uytinmang.projectos.identity.auth.GoogleOAuthSuccessHandler;
 
-@Configuration
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
+@Configuration("identitySecurityConfig")
+@ConditionalOnProperty(name = "app.monolith.enabled", havingValue = "false", matchIfMissing = true)
 @EnableMethodSecurity
 class SecurityConfig {
     @Bean PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }

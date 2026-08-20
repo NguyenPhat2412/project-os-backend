@@ -23,6 +23,10 @@
 !activity-service/**
 !api-gateway/
 !api-gateway/**
+!monolith-service/
+!monolith-service/**
 !deploy/
 !deploy/**
 **/target
+._*
+.DS_Store

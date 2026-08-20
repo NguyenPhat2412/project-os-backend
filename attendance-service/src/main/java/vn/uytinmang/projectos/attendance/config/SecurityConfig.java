@@ -20,7 +20,10 @@ import vn.uytinmang.projectos.platform.api.ApiSecurityErrorHandler;
 import vn.uytinmang.projectos.platform.security.CookieBearerTokenResolver;
 import vn.uytinmang.projectos.platform.security.CookieCsrfFilter;
 
-@Configuration
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+
+@Configuration("attendanceSecurityConfig")
+@ConditionalOnProperty(name = "app.monolith.enabled", havingValue = "false", matchIfMissing = true)
 @EnableMethodSecurity
 class SecurityConfig {
     @Bean JwtDecoder attendanceJwtDecoder(@Value("${app.jwt.secret}") String secret) {
