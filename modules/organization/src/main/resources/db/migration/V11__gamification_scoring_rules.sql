@@ -1,0 +1,2 @@
+-- Retired demo scoring-rule seed migration.
+-- This version is intentionally a no-op; rules must come from CRUD.

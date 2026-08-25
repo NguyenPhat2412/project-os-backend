@@ -5,29 +5,56 @@ set -eu
   echo "Set PROJECT_OS_RESTORE_CONFIRM=RESTORE_PROJECT_OS before restoring." >&2
   exit 2
 }
-[ $# -ge 1 ] && [ $# -le 2 ] || { echo "Usage: $0 /path/to/postgres.dump [/path/to/minio-data.tar.gz]" >&2; exit 2; }
-[ -f "$1" ] || { echo "Backup file not found: $1" >&2; exit 2; }
-[ $# -eq 1 ] || [ -f "$2" ] || { echo "MinIO archive not found: $2" >&2; exit 2; }
+[ "${PROJECT_OS_RESTORE_TARGET:-staging}" = "staging" ] || {
+  echo "Refusing restore unless PROJECT_OS_RESTORE_TARGET=staging." >&2
+  exit 2
+}
+[ $# -eq 1 ] || { echo "Usage: $0 /path/to/postgres-public.dump" >&2; exit 2; }
+BACKUP_FILE=$1
+[ -f "$BACKUP_FILE" ] || { echo "Backup file not found: $BACKUP_FILE" >&2; exit 2; }
 
-ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
-COMPOSE_FILE=${PROJECT_OS_COMPOSE_FILE:-"$ROOT/compose.yaml"}
-ENV_FILE=${PROJECT_OS_ENV_FILE:-"$ROOT/.env.production"}
-MINIO_VOLUME=${MINIO_VOLUME:-project-os-platform_minio_data}
-[ -f "$ENV_FILE" ] || { echo "Environment file not found: $ENV_FILE" >&2; exit 2; }
-case "$MINIO_VOLUME" in
-  project-os-platform_minio_data) ;;
-  *) echo "Refusing to restore an unexpected MinIO volume: $MINIO_VOLUME" >&2; exit 2 ;;
-esac
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" stop identity-service organization-service attendance-service project-service work-service operations-service knowledge-service activity-service api-gateway
-cat "$1" | docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres pg_restore -U project_os_owner -d project_os --clean --if-exists --no-owner
-if [ $# -eq 2 ]; then
-  ARCHIVE_DIR=$(CDPATH= cd -- "$(dirname "$2")" && pwd)
-  ARCHIVE_NAME=$(basename "$2")
-  case "$ARCHIVE_NAME" in
-    *[!A-Za-z0-9._-]*) echo "MinIO archive name contains unsupported characters" >&2; exit 2 ;;
-  esac
-  docker run --rm -v "$MINIO_VOLUME:/data" -v "$ARCHIVE_DIR:/backup:ro" alpine:3.20 \
-    sh -c "find /data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && tar -C /data -xzf /backup/$ARCHIVE_NAME"
+BACKUP_PATH=$(CDPATH= cd -- "$(dirname "$BACKUP_FILE")" && pwd)
+CHECKSUM_FILE="$BACKUP_PATH/SHA256SUMS"
+[ -f "$CHECKSUM_FILE" ] || {
+  echo "Refusing restore: SHA256SUMS is missing beside the backup" >&2
+  exit 2
+}
+expected_checksum=$(awk '$2 == "postgres-public.dump" { print $1; exit }' "$CHECKSUM_FILE")
+[ -n "$expected_checksum" ] || {
+  echo "Refusing restore: checksum entry for postgres-public.dump is missing" >&2
+  exit 2
+}
+if command -v sha256sum >/dev/null 2>&1; then
+  actual_checksum=$(sha256sum "$BACKUP_FILE" | awk '{print $1}')
+else
+  actual_checksum=$(shasum -a 256 "$BACKUP_FILE" | awk '{print $1}')
 fi
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T redis redis-cli FLUSHDB >/dev/null
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" start identity-service organization-service attendance-service project-service work-service operations-service knowledge-service activity-service api-gateway
+[ "$actual_checksum" = "$expected_checksum" ] || {
+  echo "Refusing restore: backup checksum mismatch" >&2
+  exit 2
+}
+
+DB_URL=${DB_URL:?DB_URL is required}
+DB_USERNAME=${DB_USERNAME:?DB_USERNAME is required}
+DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required}
+APP_COMPOSE_FILE=${PROJECT_OS_COMPOSE_FILE:-compose.monolith.prod.yaml}
+APP_ENV_FILE=${PROJECT_OS_ENV_FILE:-.env.staging}
+[ -f "$APP_ENV_FILE" ] && { set -a; . "$APP_ENV_FILE"; set +a; }
+
+case "$DB_URL" in
+  *project_os*) ;;
+  *) echo "Refusing restore: DB_URL does not identify project_os" >&2; exit 2 ;;
+esac
+
+echo "Restoring into staging target. Stop monolith-app before continuing."
+if command -v docker >/dev/null 2>&1 && [ -f "$APP_ENV_FILE" ]; then
+  docker compose --env-file "$APP_ENV_FILE" -f "$APP_COMPOSE_FILE" stop monolith-app || true
+fi
+
+PG_URL=${DB_URL#jdbc:}
+PGPASSWORD="$DB_PASSWORD" pg_restore \
+  --dbname="$PG_URL" \
+  --username="$DB_USERNAME" \
+  --clean --if-exists --no-owner "$BACKUP_FILE"
+
+echo "Restore completed. Start the monolith and run the staging smoke test before using the database."

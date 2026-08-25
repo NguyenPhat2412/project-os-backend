@@ -1,19 +1,33 @@
 # ProjectOS backend platform
 
-ProjectOS runs as a Maven multi-module Spring Boot platform:
+ProjectOS backend is organized as a Maven modular monolith:
 
-- `api-gateway` on `127.0.0.1:18080`
-- `identity-service`, `project-service`, `work-service`, `operations-service`, `knowledge-service`, `activity-service`
-- PostgreSQL 17 with service-owned schemas
-- Redis for Gateway read-model caching and MinIO for attachment storage
+- `application/monolith-app` is the only executable application on `127.0.0.1:8080`
+- `modules/*` contains identity, organization, attendance, project, work, operations, knowledge, and activity domains
+- `shared/*` contains reusable platform and resource infrastructure
+- PostgreSQL `public` is the canonical schema
+- Redis and MinIO are infrastructure dependencies
 
 ## Local development
 
 1. Copy `.env.example` to `.env` and replace every placeholder with local-only secrets.
-2. Start the stack:
+2. Start only the infrastructure containers and run the monolith directly:
 
    ```powershell
-   docker compose --profile storage-dev up -d --build
+   bash scripts/dev/start-backend-dev.sh
+   ```
+
+   This starts PostgreSQL, Redis, MinIO, and Zipkin in Docker. The backend itself runs
+   directly from the working tree on `127.0.0.1:8080`. The development script watches
+   Java/YAML source files, recompiles, and restarts only the Java process when code
+   changes; it does not rebuild or recreate the backend container. This watcher is
+   intentionally used instead of DevTools because the monolith has package-private
+   repository interfaces that are incompatible with DevTools' restart classloader.
+
+   For a production-like Docker run, use `compose.monolith.yaml` explicitly:
+
+   ```powershell
+   docker compose --env-file .env -f compose.monolith.yaml up -d --build
    ```
 
 3. Verify:
@@ -27,7 +41,7 @@ Local endpoints:
 
 | Service | Address |
 | --- | --- |
-| Gateway | `http://127.0.0.1:18080` |
+| Monolith | `http://127.0.0.1:8080` |
 | PostgreSQL | `127.0.0.1:15433`, database `project_os` |
 | MinIO console | `http://127.0.0.1:19001` |
 | Zipkin traces | `http://127.0.0.1:19411` |
@@ -40,20 +54,29 @@ Run backend verification with:
 .\mvnw.cmd -q test
 ```
 
-## Database ownership
+## Backend naming and module ownership
 
-Each service owns one PostgreSQL schema and its Flyway history: `identity`, `project`, `work`, `operations`, `knowledge`, and `activity`. Hibernate validates schemas only; it does not create or alter production tables.
+See [backend naming convention](docs/architecture/backend-naming-convention.md). Each domain module owns its entities, application services, controllers, and repositories. Cross-module calls use application interfaces, not HTTP clients or another module's repositories.
+
+Hibernate validates schemas only; it does not create or alter production tables. Flyway migrations for the monolith live under `application/monolith-app/src/main/resources/db/migration/`.
 
 ## Production
 
-Use the explicit production override; it disables OpenAPI, requires production secrets, enables secure cookies, and keeps database/gateway ports bound to loopback:
+The modular monolith at `127.0.0.1:8080` is the only application entrypoint.
+Nginx/Caddy may sit in front of it in production; no gateway or downstream domain
+service process is deployed.
+
+Use the explicit production Compose file; it disables OpenAPI, requires production
+secrets, enables secure cookies, and keeps the application bound to loopback:
 
 ```bash
-docker compose --env-file .env.production -f compose.yaml -f compose.prod.yaml up -d --build
+docker compose --env-file .env.production -f compose.monolith.prod.yaml up -d
 ```
 
-Read [Phase 0 operations](docs/PHASE_0_OPERATIONS.md) before deployment. It covers Nginx/Cloudflare, backups, restore, CI/CD secrets, and the Firestore cutover.
+Read [Phase 0 operations](docs/operations/phase-0-operations.md) before deployment. It covers reverse proxy, backups, restore, CI/CD secrets and PostgreSQL migration verification.
 
-## Firestore migration
+## Migration policy
 
-`migration-tool` reads Firestore in dry-run mode by default. During an approved write freeze, run its dry-run, inspect the report, apply once, then apply a second time to prove idempotency. It requires Firebase application credentials and is documented in [migration-tool/README.md](migration-tool/README.md).
+Flyway migrations under `application/monolith-app/src/main/resources/db/migration/monolith/`
+are the only supported schema migration path. Manual SQL migration tools and
+service-based deployment stacks are not part of the backend repository runtime.

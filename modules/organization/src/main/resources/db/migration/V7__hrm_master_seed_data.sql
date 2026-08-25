@@ -1,0 +1,3 @@
+-- Retired demo-data migration.
+-- This version is intentionally a no-op. Business rows are created only by
+-- the application CRUD APIs after a real organization is provisioned.

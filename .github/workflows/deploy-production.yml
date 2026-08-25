@@ -49,10 +49,11 @@ jobs:
           set -eu
           cd "$DEPLOY_PATH"
           test -z "$(git status --porcelain)"
+          docker compose --env-file .env.production -f compose.monolith.prod.yaml config --services | grep -qx 'monolith-app'
           git rev-parse HEAD > .previous-deploy-ref
           git fetch origin "$DEPLOY_REF"
           git checkout --detach FETCH_HEAD
           DEPLOY_REF="$(git rev-parse HEAD)" IMAGE_TAG="$IMAGE_TAG" IMAGE_NAMESPACE="$IMAGE_NAMESPACE" PROJECT_OS_ENV_FILE="$DEPLOY_PATH/.env.production" bash ./deploy/release/deploy-image.sh
-          docker compose --env-file .env.production -f compose.yaml -f compose.prod.yaml -f compose.release.yaml ps
+          docker compose --env-file .env.production -f compose.monolith.prod.yaml ps
           REMOTE
           } | ssh "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s'

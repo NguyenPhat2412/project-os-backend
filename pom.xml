@@ -8,52 +8,53 @@
         <version>4.1.0</version>
         <relativePath/>
     </parent>
-    <groupId>vn.uytinmang.projectos</groupId>
+    <groupId>com.projectos.backend</groupId>
     <artifactId>project-os-platform</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>Project OS Platform</name>
 
     <modules>
-        <module>platform-common</module>
-        <module>resource-service-core</module>
-        <module>identity-service</module>
-        <module>organization-service</module>
-        <module>attendance-service</module>
-        <module>project-service</module>
-        <module>work-service</module>
-        <module>operations-service</module>
-        <module>knowledge-service</module>
-        <module>activity-service</module>
-        <module>api-gateway</module>
-        <module>monolith-service</module>
+        <module>shared/platform</module>
+        <module>shared/resource</module>
+        <module>modules/identity</module>
+        <module>modules/organization</module>
+        <module>modules/attendance</module>
+        <module>modules/project</module>
+        <module>modules/work</module>
+        <module>modules/operations</module>
+        <module>modules/knowledge</module>
+        <module>modules/activity</module>
+        <module>application/monolith-app</module>
     </modules>
 
     <properties>
         <java.version>21</java.version>
-        <spring-cloud.version>2025.1.2</spring-cloud.version>
         <springdoc.version>3.0.3</springdoc.version>
     </properties>
 
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>org.springframework.cloud</groupId>
-                <artifactId>spring-cloud-dependencies</artifactId>
-                <version>${spring-cloud.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
-
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>**/._*</exclude>
+                    <exclude>**/.DS_Store</exclude>
+                </excludes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <excludes>
+                        <!-- Ignore macOS AppleDouble sidecar files accidentally copied into test output. -->
+                        <exclude>**/._*</exclude>
+                    </excludes>
                     <systemPropertyVariables>
                         <management.tracing.export.zipkin.enabled>false</management.tracing.export.zipkin.enabled>
+                        <spring.classformat.ignore>true</spring.classformat.ignore>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>

@@ -65,5 +65,7 @@ build/
 
 ### Operating systems ###
 .DS_Store
+._*
+**/.AppleDouble/
 Thumbs.db
 Desktop.ini

@@ -2,7 +2,7 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
-COMPOSE_FILE=${PROJECT_OS_COMPOSE_FILE:-"$ROOT/compose.yaml"}
+COMPOSE_FILE=${PROJECT_OS_COMPOSE_FILE:-"$ROOT/compose.monolith.prod.yaml"}
 ENV_FILE=${PROJECT_OS_ENV_FILE:-"$ROOT/.env.production"}
 BACKUP_DIR=${BACKUP_DIR:-/var/backups/project-os}
 MAX_DISK_PERCENT=${PROJECT_OS_MAX_DISK_PERCENT:-85}
@@ -45,10 +45,8 @@ for container in $containers; do
   case "$status" in healthy|running) ;; *) add_failure "container $container is $status" ;; esac
 done
 
-curl -fsS --max-time 10 http://127.0.0.1:18080/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' || add_failure "gateway health"
-compose exec -T postgres pg_isready -U project_os_owner -d project_os >/dev/null 2>&1 || add_failure "PostgreSQL readiness"
-compose exec -T redis redis-cli ping | grep -q '^PONG$' || add_failure "Redis ping"
-compose exec -T minio mc ready local >/dev/null 2>&1 || add_failure "MinIO readiness"
+curl -fsS --max-time 10 http://127.0.0.1:8080/actuator/health | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' || add_failure "monolith health"
+compose exec -T redis sh -c 'redis-cli -a "$REDIS_PASSWORD" ping' | grep -q '^PONG$' || add_failure "Redis ping"
 
 disk_percent=$(df -P "$ROOT" | awk 'NR == 2 { gsub(/%/, "", $5); print $5 }')
 [ -n "$disk_percent" ] && [ "$disk_percent" -lt "$MAX_DISK_PERCENT" ] || add_failure "disk ${disk_percent:-unknown}%"
@@ -62,7 +60,7 @@ if [ -r /proc/meminfo ]; then
   fi
 fi
 
-latest_backup=$(find "$BACKUP_DIR" -type f -name postgres.dump -printf '%T@\n' 2>/dev/null | sort -nr | head -n 1 || true)
+latest_backup=$(find "$BACKUP_DIR" -type f -name postgres-public.dump -printf '%T@\n' 2>/dev/null | sort -nr | head -n 1 || true)
 if [ -z "$latest_backup" ]; then
   add_failure "backup missing"
 else
@@ -70,7 +68,7 @@ else
   [ "$backup_age" -lt "$MAX_BACKUP_AGE_SECONDS" ] || add_failure "backup stale (${backup_age}s)"
 fi
 
-login_failures=$(compose logs --since "$LOGIN_FAILURE_WINDOW" identity-service 2>/dev/null | grep -c 'auth_login_failed' || true)
+login_failures=$(compose logs --since "$LOGIN_FAILURE_WINDOW" monolith-app 2>/dev/null | grep -c 'auth_login_failed' || true)
 [ "$login_failures" -lt "$LOGIN_FAILURE_LIMIT" ] || add_failure "login failures ${login_failures}/${LOGIN_FAILURE_WINDOW}"
 
 if [ -n "$failures" ]; then

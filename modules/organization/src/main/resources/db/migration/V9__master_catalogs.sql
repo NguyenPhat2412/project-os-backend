@@ -1,0 +1,2 @@
+-- Retired demo catalog seed migration.
+-- This version is intentionally a no-op; catalog rows must come from CRUD.

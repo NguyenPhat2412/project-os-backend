@@ -19,8 +19,11 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - run: bash ./mvnw -B -q test
-      - run: docker compose -f compose.yaml config --quiet
+      - run: bash ./scripts/db/validate_flyway_migration_names.sh
+      - run: bash ./scripts/architecture/verify-monolith-boundary.sh
+      - run: bash ./mvnw -B -q -pl application/monolith-app -am verify
+      - run: docker compose -f compose.monolith.yaml config --quiet
+      - run: docker compose -f compose.monolith.prod.yaml config --quiet
 
   image-build:
     needs: test
@@ -30,7 +33,9 @@ jobs:
       packages: write
     strategy:
       matrix:
-        module: [identity-service, organization-service, attendance-service, project-service, work-service, operations-service, knowledge-service, activity-service, api-gateway]
+        include:
+          - name: monolith
+            path: application/monolith-app
     steps:
       - uses: actions/checkout@v6
       - uses: docker/setup-buildx-action@v4
@@ -45,6 +50,6 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          build-args: MODULE=${{ matrix.module }}
+          build-args: MODULE=${{ matrix.path }}
           push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') }}
-          tags: ghcr.io/nguyenphat2412/project-os-${{ matrix.module }}:${{ github.sha }}
+          tags: ghcr.io/nguyenphat2412/project-os-${{ matrix.name }}:${{ github.sha }}

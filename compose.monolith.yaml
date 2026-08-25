@@ -9,15 +9,15 @@ services:
     environment:
       POSTGRES_DB: project_os
       POSTGRES_USER: project_os_owner
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_dev_password_123456}
-      IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:-identity_dev_password_123456}
-      ORGANIZATION_DB_PASSWORD: ${ORGANIZATION_DB_PASSWORD:-org_dev_password_123456}
-      ATTENDANCE_DB_PASSWORD: ${ATTENDANCE_DB_PASSWORD:-attendance_dev_password_123456}
-      PROJECT_DB_PASSWORD: ${PROJECT_DB_PASSWORD:-project_dev_password_123456}
-      WORK_DB_PASSWORD: ${WORK_DB_PASSWORD:-work_dev_password_123456}
-      OPERATIONS_DB_PASSWORD: ${OPERATIONS_DB_PASSWORD:-operations_dev_password_123456}
-      KNOWLEDGE_DB_PASSWORD: ${KNOWLEDGE_DB_PASSWORD:-knowledge_dev_password_123456}
-      ACTIVITY_DB_PASSWORD: ${ACTIVITY_DB_PASSWORD:-activity_dev_password_123456}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:?IDENTITY_DB_PASSWORD is required}
+      ORGANIZATION_DB_PASSWORD: ${ORGANIZATION_DB_PASSWORD:?ORGANIZATION_DB_PASSWORD is required}
+      ATTENDANCE_DB_PASSWORD: ${ATTENDANCE_DB_PASSWORD:?ATTENDANCE_DB_PASSWORD is required}
+      PROJECT_DB_PASSWORD: ${PROJECT_DB_PASSWORD:?PROJECT_DB_PASSWORD is required}
+      WORK_DB_PASSWORD: ${WORK_DB_PASSWORD:?WORK_DB_PASSWORD is required}
+      OPERATIONS_DB_PASSWORD: ${OPERATIONS_DB_PASSWORD:?OPERATIONS_DB_PASSWORD is required}
+      KNOWLEDGE_DB_PASSWORD: ${KNOWLEDGE_DB_PASSWORD:?KNOWLEDGE_DB_PASSWORD is required}
+      ACTIVITY_DB_PASSWORD: ${ACTIVITY_DB_PASSWORD:?ACTIVITY_DB_PASSWORD is required}
     volumes:
       - postgres_monolith_data:/var/lib/postgresql/data
     ports:
@@ -34,6 +34,8 @@ services:
     restart: unless-stopped
     mem_limit: 128m
     command: redis-server --save "" --appendonly no --maxmemory 96mb --maxmemory-policy allkeys-lru
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-16379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -41,35 +43,79 @@ services:
       retries: 20
     networks: [project-os-monolith-net]
 
-  monolith-service:
+  zipkin:
+    image: openzipkin/zipkin:3
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ZIPKIN_PORT:-19411}:9411"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9411/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [project-os-monolith-net]
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    volumes:
+      - minio_monolith_data:/data
+    ports:
+      - "127.0.0.1:${MINIO_API_PORT:-19000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-19001}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [project-os-monolith-net]
+
+  monolith-app:
     build:
       context: .
       dockerfile: Dockerfile
-      args: { MODULE: monolith-service }
+      args: { MODULE: application/monolith-app }
     restart: unless-stopped
     mem_limit: 768m
     environment:
       SERVER_PORT: 8080
-      SERVER_ADDRESS: 0.0.0.0
       DB_URL: jdbc:postgresql://postgres:5432/project_os
       DB_USERNAME: project_os_owner
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres_dev_password_123456}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_project_os_dev_at_least_32_chars_long}
-      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-super_internal_token_project_os_dev_at_least_32_chars}
-      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
-      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-AdminPassword123!}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+      MINIO_BUCKET: ${MINIO_BUCKET:-project-os}
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}
+      OUTBOX_ENABLED: ${OUTBOX_ENABLED:-true}
+      ACTUATOR_HEALTH_SHOW_DETAILS: ${ACTUATOR_HEALTH_SHOW_DETAILS:-when_authorized}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-Administrator}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
-      OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required}
+      PROJECT_OS_ENV_FILE: /run/project-os/project-os.env
+      OPENAPI_ENABLED: ${OPENAPI_ENABLED:-false}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+      zipkin:
+        condition: service_started
     ports:
       - "127.0.0.1:8080:8080"
+    volumes:
+      - ${PROJECT_OS_ENV_HOST_PATH:-./.env}:/run/project-os/project-os.env:rw
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
       interval: 10s
@@ -82,3 +128,4 @@ networks:
 
 volumes:
   postgres_monolith_data:
+  minio_monolith_data:

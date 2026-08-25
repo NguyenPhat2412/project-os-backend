@@ -1,5 +1,5 @@
 [Unit]
-Description=Run ProjectOS backup at 02:00 UTC
+Description=Run ProjectOS monolith backup at 02:00 UTC
 
 [Timer]
 OnCalendar=*-*-* 02:00:00 UTC

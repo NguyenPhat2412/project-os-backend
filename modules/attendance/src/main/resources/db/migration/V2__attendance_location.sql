@@ -1,0 +1,10 @@
+alter table attendance_records add column check_in_latitude double precision;
+alter table attendance_records add column check_in_longitude double precision;
+alter table attendance_records add column check_in_accuracy_meters double precision;
+alter table attendance_records add column check_in_distance_meters double precision;
+alter table attendance_records add column check_out_latitude double precision;
+alter table attendance_records add column check_out_longitude double precision;
+alter table attendance_records add column check_out_accuracy_meters double precision;
+alter table attendance_records add column check_out_distance_meters double precision;
+alter table attendance_records add column work_mode text not null default 'OFFICE';
+alter table attendance_records add column qr_verified boolean not null default false;

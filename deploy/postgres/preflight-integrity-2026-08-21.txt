@@ -1,0 +1,27 @@
+Project OS PostgreSQL public-schema preflight
+Run date: 2026-08-21
+Database: project_os
+
+Schema inventory
+- Public tables: 35
+- Tables with primary keys: 35
+- Existing foreign keys before migration: 3
+
+Data checks
+- Proposed foreign-key orphan checks: 0 rows
+- Tenant mismatch checks: 0 rows
+- Duplicate attendance keys: 0 rows
+- Duplicate schedule assignment keys: 0 rows
+- Negative policy/attendance/compensation values: 0 rows
+
+Identifier review
+- Core entity identifiers are UUID-backed.
+- enterprise_contracts.employee_id is text and contains non-UUID values.
+- enterprise_kpi_evaluations.employee_id has no populated rows.
+- enterprise_teams.organization_id values are UUID-shaped text.
+- enterprise_teams.department_id requires explicit mapping review.
+
+Decision
+No data was deleted or rewritten. Legacy text references remain unchanged and
+must be mapped through enterprise_identifier_mappings before UUID foreign keys
+are introduced.

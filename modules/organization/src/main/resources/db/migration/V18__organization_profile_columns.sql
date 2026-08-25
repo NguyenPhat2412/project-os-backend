@@ -1,0 +1,12 @@
+alter table organizations add column if not exists code varchar(50);
+alter table organizations add column if not exists name_vi text;
+alter table organizations add column if not exists name_en text;
+alter table organizations add column if not exists short_name varchar(100);
+alter table organizations add column if not exists tax_code varchar(50);
+alter table organizations add column if not exists legal_representative varchar(255);
+alter table organizations add column if not exists representative_title varchar(255);
+alter table organizations add column if not exists headquarters_address text;
+alter table organizations add column if not exists hotline varchar(50);
+alter table organizations add column if not exists email varchar(255);
+alter table organizations add column if not exists website varchar(255);
+alter table organizations add column if not exists details jsonb not null default '{}'::jsonb;

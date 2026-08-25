@@ -1,5 +1,5 @@
 [Unit]
-Description=ProjectOS PostgreSQL and MinIO backup
+Description=ProjectOS monolith PostgreSQL backup
 After=docker.service
 Requires=docker.service
 OnFailure=project-os-backup-failure-alert.service

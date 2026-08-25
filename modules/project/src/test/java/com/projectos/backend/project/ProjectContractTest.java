@@ -1,0 +1,199 @@
+package com.projectos.backend.project;
+
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockCookie;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import com.projectos.backend.project.domain.ProjectRepository;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+@Testcontainers
+class ProjectContractTest {
+    @Container
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
+
+    @DynamicPropertySource
+    static void database(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.flyway.default-schema", () -> "public");
+        registry.add("spring.jpa.properties.hibernate.default_schema", () -> "public");
+        registry.add("app.jwt.secret", () -> "test-secret-that-is-at-least-32-bytes-long");
+        registry.add("app.outbox.enabled", () -> false);
+        registry.add("app.rbac.enabled", () -> false);
+        registry.add("app.rbac.internal-token", () -> "test-internal-token");
+    }
+
+    @Autowired MockMvc mvc;
+    @Autowired ProjectRepository projects;
+
+    @Test
+    void projectCrudUsesEnvelopeAndRbac() throws Exception {
+        UUID actorId = UUID.randomUUID();
+        var user = jwt().jwt(token -> token.claim("uid", actorId.toString()).claim("role", "USER"))
+                .authorities(new SimpleGrantedAuthority("ROLE_USER"));
+        var admin = jwt().jwt(token -> token.claim("uid", actorId.toString()).claim("role", "ROOT_ADMIN"))
+                .authorities(new SimpleGrantedAuthority("ROLE_ROOT_ADMIN"));
+        UUID organizationId = UUID.randomUUID();
+        String body = "{\"name\":\"PostgreSQL Project\",\"description\":\"Persisted\",\"status\":\"active\",\"icon\":\"P\",\"color\":\"blue\",\"organizationId\":\"" + organizationId + "\"}";
+
+        mvc.perform(post("/api/v1/projects").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnauthorized());
+
+        mvc.perform(post("/api/v1/projects").with(admin).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Missing organization\"}"))
+                .andExpect(status().isBadRequest());
+
+        mvc.perform(post("/api/v1/projects").with(admin).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.name").value("PostgreSQL Project"))
+                .andExpect(jsonPath("$.data.ownerId").value(actorId.toString()))
+                .andExpect(jsonPath("$.data.organizationId").value(organizationId.toString()));
+
+        UUID otherOrganizationId = UUID.randomUUID();
+        mvc.perform(post("/api/v1/projects").with(admin).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Other organization\",\"organizationId\":\"" + otherOrganizationId + "\"}"))
+                .andExpect(status().isCreated());
+        mvc.perform(get("/api/v1/projects?organizationId=" + organizationId).with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.total").value(1))
+                .andExpect(jsonPath("$.data[0].organizationId").value(organizationId.toString()));
+
+        UUID projectId = projects.findAll().stream()
+                .filter(project -> "PostgreSQL Project".equals(project.getName()))
+                .findFirst().orElseThrow().getId();
+        mvc.perform(put("/api/v1/projects/" + projectId + "/settings/dashboard").with(admin)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"layout\":\"compact\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.layout").value("compact"));
+        mvc.perform(put("/api/v1/projects/" + projectId + "/members/" + actorId).with(admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"memberId\":\"" + actorId + "\",\"roles\":[\"Developer\"]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.roles[0]").value("Developer"));
+        mvc.perform(put("/api/v1/projects/" + projectId + "/roles/developer").with(admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Developer\",\"permissions\":[\"tasks:read\",\"tasks:update\"]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.name").value("Developer"));
+
+        mvc.perform(get("/api/v1/projects").with(user))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].status").value("active"))
+                .andExpect(jsonPath("$.meta.total").isNumber());
+
+        var outsider = jwt().jwt(token -> token.claim("uid", UUID.randomUUID().toString())
+                        .claim("role", "USER"))
+                .authorities(new SimpleGrantedAuthority("ROLE_USER"));
+        mvc.perform(get("/api/v1/projects").with(outsider))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isEmpty())
+                .andExpect(jsonPath("$.meta.total").value(0));
+
+        mvc.perform(post("/api/v1/projects").with(admin)
+                        .cookie(new MockCookie("PROJECT_OS_ACCESS", "cookie-token"))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void genericTaskReadRequiresManagerOrExplicitPermission() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID developerId = UUID.randomUUID();
+        var owner = jwt().jwt(token -> token.claim("uid", ownerId.toString()).claim("role", "ROOT_ADMIN"))
+                .authorities(new SimpleGrantedAuthority("ROLE_ROOT_ADMIN"));
+        mvc.perform(post("/api/v1/projects").with(owner).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Scoped Tasks\",\"status\":\"active\",\"organizationId\":\"" + UUID.randomUUID() + "\"}"))
+                .andExpect(status().isCreated());
+        UUID projectId = projects.findAll().stream().filter(project -> "Scoped Tasks".equals(project.getName()))
+                .findFirst().orElseThrow().getId();
+        mvc.perform(put("/api/v1/projects/" + projectId + "/members/" + developerId).with(owner)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"memberId\":\"" + developerId + "\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(put("/api/v1/projects/" + projectId + "/role-assignments/" + developerId).with(owner)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"memberId\":\"" + developerId + "\",\"roles\":[\"developer\"]}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/api/v1/internal/projects/" + projectId + "/permissions/check")
+                        .header("X-Internal-Token", "test-internal-token")
+                        .param("actorId", developerId.toString()).param("resource", "tasks").param("action", "read"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.allowed").value(false));
+        mvc.perform(get("/api/v1/internal/projects/" + projectId + "/permissions/check")
+                        .header("X-Internal-Token", "test-internal-token")
+                        .param("actorId", developerId.toString()).param("resource", "tasks-all").param("action", "read"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.allowed").value(false));
+        mvc.perform(get("/api/v1/internal/projects/" + projectId + "/permissions/check")
+                        .header("X-Internal-Token", "test-internal-token")
+                        .param("actorId", developerId.toString()).param("resource", "projects").param("action", "read"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.allowed").value(true));
+    }
+
+    @Test
+    void quarterScheduleMustStayInsideTheSelectedQuarter() throws Exception {
+        UUID actorId = UUID.randomUUID();
+        var admin = jwt().jwt(token -> token.claim("uid", actorId.toString()).claim("role", "ROOT_ADMIN"))
+                .authorities(new SimpleGrantedAuthority("ROLE_ROOT_ADMIN"));
+        UUID organizationId = UUID.randomUUID();
+
+        mvc.perform(post("/api/v1/projects").with(admin).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Quarterly Project\",\"organizationId\":\"" + organizationId
+                                + "\",\"quarter\":\"Q2 2026\",\"startDate\":\"2026-04-01\",\"endDate\":\"2026-06-30\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.quarter").value("Q2 2026"))
+                .andExpect(jsonPath("$.data.startDate").value("2026-04-01"))
+                .andExpect(jsonPath("$.data.endDate").value("2026-06-30"));
+
+        mvc.perform(post("/api/v1/projects").with(admin).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Invalid Quarter\",\"organizationId\":\"" + organizationId
+                                + "\",\"quarter\":\"Q2 2026\",\"startDate\":\"2026-04-01\",\"endDate\":\"2026-07-01\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_project_schedule"));
+
+        UUID projectId = projects.findAll().stream()
+                .filter(project -> "Quarterly Project".equals(project.getName()))
+                .findFirst().orElseThrow().getId();
+        mvc.perform(patch("/api/v1/projects/" + projectId).with(admin).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quarter\":\"Q3 2026\",\"startDate\":\"2026-07-01\",\"endDate\":\"2026-10-01\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("invalid_project_schedule"));
+    }
+
+    @Test
+    void readModelsExposePersistedProjectResourceData() throws Exception {
+        UUID actorId = UUID.randomUUID();
+        var admin = jwt().jwt(token -> token.claim("uid", actorId.toString()).claim("role", "ROOT_ADMIN"))
+                .authorities(new SimpleGrantedAuthority("ROLE_ROOT_ADMIN"));
+        UUID organizationId = UUID.randomUUID();
+
+        mvc.perform(post("/api/v1/projects").with(admin).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Read Model Project\",\"organizationId\":\"" + organizationId + "\"}"))
+                .andExpect(status().isCreated());
+        UUID projectId = projects.findAll().stream().filter(project -> "Read Model Project".equals(project.getName()))
+                .findFirst().orElseThrow().getId();
+
+        mvc.perform(get("/api/v1/projects/" + projectId + "/read-model/dashboard").with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.tasks").value(0))
+                .andExpect(jsonPath("$.data.tasks").isArray())
+                .andExpect(jsonPath("$.data.team").isArray());
+    }
+}

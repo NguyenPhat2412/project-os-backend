@@ -1,0 +1,33 @@
+spring:
+  config:
+    activate:
+      on-profile: production
+  flyway:
+    enabled: false
+    baseline-on-migrate: false
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+app:
+  cookie:
+    secure: true
+  security:
+    openapi-public: false
+    rate-limit:
+      enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
