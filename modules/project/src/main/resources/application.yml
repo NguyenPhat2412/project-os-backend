@@ -3,9 +3,9 @@ server.port: ${SERVER_PORT:8082}
 spring:
   application.name: project
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5433/project_os}
-    username: ${PROJECT_DB_USERNAME:project_os}
-    password: ${PROJECT_DB_PASSWORD:local_project_os_password}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/project_os}
+    username: ${DB_USERNAME:${POSTGRES_USER:project_os_owner}}
+    password: ${DB_PASSWORD:${POSTGRES_PASSWORD:postgres_dev_password_123456}}
     hikari.maximum-pool-size: ${DB_POOL_SIZE:5}
   flyway:
     create-schemas: true
@@ -23,11 +23,11 @@ springdoc:
   api-docs.enabled: ${OPENAPI_ENABLED:false}
   swagger-ui.enabled: ${OPENAPI_ENABLED:false}
 app:
-  jwt.secret: ${JWT_SECRET:local-development-jwt-secret-32-characters-minimum}
+  jwt.secret: ${JWT_SECRET}
   resources: members,roles,role-assignments,settings
   outbox:
     enabled: ${OUTBOX_ENABLED:true}
-    internal-token: ${INTERNAL_SERVICE_TOKEN:local-internal-service-token-change-me}
+    internal-token: ${INTERNAL_SERVICE_TOKEN}
   rbac:
     enabled: ${RBAC_ENABLED:true}
-    internal-token: ${INTERNAL_SERVICE_TOKEN:local-internal-service-token-change-me}
+    internal-token: ${INTERNAL_SERVICE_TOKEN}

@@ -7,7 +7,28 @@ import java.util.UUID;
 @Entity @Table(name="attendance_records")
 public class AttendanceRecord {
     public enum Status { OPEN, COMPLETED }
-    @Id private UUID id; @Column(name="organization_id",nullable=false) private UUID organizationId; @Column(name="employee_id",nullable=false) private UUID employeeId; @Column(name="shift_id",nullable=false) private UUID shiftId; @Column(name="work_date",nullable=false) private LocalDate workDate; @Column(name="shift_name",nullable=false) private String shiftName; @Column(name="scheduled_start_at",nullable=false) private Instant scheduledStartAt; @Column(name="scheduled_end_at",nullable=false) private Instant scheduledEndAt; @Column(name="check_in_at") private Instant checkInAt; @Column(name="check_out_at") private Instant checkOutAt; @Column(name="break_minutes",nullable=false) private int breakMinutes; @Enumerated(EnumType.STRING) @Column(nullable=false) private Status status; @Column(name="created_at",nullable=false,updatable=false) private Instant createdAt; @Column(name="updated_at",nullable=false) private Instant updatedAt;
+    @Id private UUID id;
+    @Column(name="organization_id",nullable=false)
+    private UUID organizationId;
+    @Column(name="employee_id",nullable=false)
+    private UUID employeeId;
+    @Column(name="shift_id",nullable=false)
+    private UUID shiftId;
+    @Column(name="work_date",nullable=false)
+    private LocalDate workDate;
+    @Column(name="shift_name",nullable=false)
+    private String shiftName;
+    @Column(name="scheduled_start_at",nullable=false)
+    private Instant scheduledStartAt;
+    @Column(name="scheduled_end_at",nullable=false)
+    private Instant scheduledEndAt;
+    @Column(name="check_in_at")
+    private Instant checkInAt;
+    @Column(name="check_out_at")
+    private Instant checkOutAt;
+    @Column(name="break_minutes",nullable=false)
+    private int breakMinutes;
+    @Enumerated(EnumType.STRING) @Column(nullable=false) private Status status; @Column(name="created_at",nullable=false,updatable=false) private Instant createdAt; @Column(name="updated_at",nullable=false) private Instant updatedAt;
     @Column(name="check_in_latitude") private Double checkInLatitude; @Column(name="check_in_longitude") private Double checkInLongitude; @Column(name="check_in_accuracy_meters") private Double checkInAccuracyMeters; @Column(name="check_in_distance_meters") private Double checkInDistanceMeters; @Column(name="check_out_latitude") private Double checkOutLatitude; @Column(name="check_out_longitude") private Double checkOutLongitude; @Column(name="check_out_accuracy_meters") private Double checkOutAccuracyMeters; @Column(name="check_out_distance_meters") private Double checkOutDistanceMeters; @Column(name="work_mode",nullable=false) private String workMode; @Column(name="qr_verified",nullable=false) private boolean qrVerified;
     protected AttendanceRecord(){} public AttendanceRecord(UUID organizationId,UUID employeeId,Shift shift,LocalDate workDate,Instant scheduledStartAt,Instant scheduledEndAt,Instant checkInAt){this(organizationId,employeeId,shift,workDate,scheduledStartAt,scheduledEndAt,checkInAt,null,null,null,null,"OFFICE",false);}
     public AttendanceRecord(UUID organizationId,UUID employeeId,Shift shift,LocalDate workDate,Instant scheduledStartAt,Instant scheduledEndAt,Instant checkInAt,Double latitude,Double longitude,Double accuracy,Double distance,String workMode,boolean qrVerified){this.organizationId=organizationId;this.employeeId=employeeId;this.shiftId=shift.getId();this.workDate=workDate;this.shiftName=shift.getName();this.scheduledStartAt=scheduledStartAt;this.scheduledEndAt=scheduledEndAt;this.checkInAt=checkInAt;this.breakMinutes=shift.getBreakMinutes();this.status=Status.OPEN;this.checkInLatitude=latitude;this.checkInLongitude=longitude;this.checkInAccuracyMeters=accuracy;this.checkInDistanceMeters=distance;this.workMode=workMode;this.qrVerified=qrVerified;}

@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import com.projectos.backend.organization.domain.OrganizationApplicationService;
 import com.projectos.backend.organization.web.OrganizationController;
 import com.projectos.backend.platform.organization.OrganizationDirectory;
+import com.projectos.backend.platform.organization.AiConfiguration;
 
 /**
  * Bridges the organization module application service to shared in-process
@@ -45,6 +46,11 @@ public class OrganizationDirectoryAdapter implements OrganizationDirectory {
         var policy = organizations.attendancePolicy(organizationId);
         return new AttendancePolicy(policy.configured(), policy.latitude(), policy.longitude(),
                 policy.radiusMeters(), policy.officeName());
+    }
+
+    @Override
+    public AiConfiguration aiConfiguration(UUID organizationId) {
+        return organizations.aiConfiguration(organizationId);
     }
 
     @Override

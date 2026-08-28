@@ -28,7 +28,7 @@ constraint migration requires an orphan-data report and a verified backup first.
    procedure; Flyway migrations do not delete or rewrite rows automatically.
 5. Start the monolith against the verified staging restore. Flyway baselines an
    existing non-empty schema at version 1 and applies only forward migrations
-   V2 through V22. A fresh database runs the canonical V1 baseline first.
+   V2 through V29. A fresh database runs the canonical V1 baseline first.
 6. Run `./mvnw -pl application/monolith-app -am verify`, then smoke-test auth,
    organization, project, attendance, resource and dashboard flows.
 7. Take a fresh production backup immediately before the approved migration.
@@ -36,10 +36,11 @@ constraint migration requires an orphan-data report and a verified backup first.
 
 The canonical read-only preflight SQL is
 `scripts/db/preflight_public_schema.sql`. It is required before and after the
-schema-hardening sequence through `V22__feature_position_profiles.sql`.
-The current gate expects 49 public tables, one primary key per table and 80
-validated foreign keys after V22. The latest migrations also validate ownership
-FKs, tenant integrity, data-quality checks, and append-only protection for
+schema-hardening sequence through `V29__complete_foreign_key_indexes.sql`.
+The current gate expects 58 public tables (57 business tables plus the Flyway
+history table), one primary key per table and 102 validated foreign keys after
+V29. The latest migrations also validate ownership FKs, tenant integrity,
+data-quality checks, child-side FK indexes, and append-only protection for
 activity and organization audit records.
 The older `deploy/postgres/preflight-integrity.sql` remains a historical
 reference and is not the complete current report.
@@ -49,3 +50,20 @@ The hardening record is documented in
 `docs/plans/2026-08-24-public-schema-hardening.md`. The local verification
 artifact is the read-only command output captured on 2026-08-24; no production
 database was modified.
+
+## Local Docker PostgreSQL
+
+The local restore target is the PostgreSQL service from
+`compose.monolith.yaml`, database `project_os`, owned by
+`project_os_owner`. Keep the real password only in the ignored `be/.env` and
+start the local stack with:
+
+```bash
+docker compose --env-file .env \
+  -f compose.monolith.yaml \
+  up -d --build
+```
+
+The command preserves the named PostgreSQL volume between restarts. For fast
+backend iteration, `scripts/dev/start-backend-dev.sh` starts this same
+infrastructure and runs the monolith directly on the host.

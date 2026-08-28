@@ -15,6 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -35,7 +36,7 @@ class KnowledgeResourceContractTest {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("app.jwt.secret", () -> "test-secret-that-is-at-least-32-bytes-long");
         registry.add("app.outbox.enabled", () -> false);
-        registry.add("app.rbac.enabled", () -> false);
+        registry.add("app.rbac.enabled", () -> true);
     }
 
     @Autowired MockMvc mvc;
@@ -43,7 +44,8 @@ class KnowledgeResourceContractTest {
     @Test
     void documentCrudPersistsInKnowledgeSchema() throws Exception {
         UUID projectId = UUID.randomUUID();
-        var actor = jwt().jwt(token -> token.claim("uid", UUID.randomUUID().toString()).claim("role", "ROOT_ADMIN"));
+        var actor = jwt().authorities(new SimpleGrantedAuthority("ROLE_ROOT_ADMIN"))
+                .jwt(token -> token.claim("uid", UUID.randomUUID().toString()).claim("role", "ROOT_ADMIN"));
         String path = "/api/v1/projects/" + projectId + "/documents";
         mvc.perform(post(path).with(actor).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"legacyId\":\"DOC-01\",\"title\":\"Architecture\",\"type\":\"wiki\"}"))
@@ -57,7 +59,8 @@ class KnowledgeResourceContractTest {
     @Test
     void attachmentContentMustStayInsideItsProject() throws Exception {
         UUID projectId = UUID.randomUUID();
-        var actor = jwt().jwt(token -> token.claim("uid", UUID.randomUUID().toString()).claim("role", "ROOT_ADMIN"));
+        var actor = jwt().authorities(new SimpleGrantedAuthority("ROLE_ROOT_ADMIN"))
+                .jwt(token -> token.claim("uid", UUID.randomUUID().toString()).claim("role", "ROOT_ADMIN"));
         MockMultipartFile file = new MockMultipartFile("file", "note.txt", "text/plain", "note".getBytes());
 
         mvc.perform(multipart("/api/v1/projects/" + projectId + "/attachments/content").file(file)
@@ -65,5 +68,30 @@ class KnowledgeResourceContractTest {
                         .with(actor))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("invalid_storage_path"));
+    }
+
+    @Test
+    void nonRootCannotReadAProjectWithoutProjectPermission() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        var actor = jwt().authorities(new SimpleGrantedAuthority("ROLE_USER"))
+                .jwt(token -> token.claim("uid", UUID.randomUUID().toString()).claim("role", "USER"));
+
+        mvc.perform(get("/api/v1/projects/" + projectId + "/documents").with(actor))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.error.code").value("permission_service_unavailable"));
+    }
+
+    @Test
+    void uploadRejectsActiveHtmlContentEvenWhenClientChangesItsMimeType() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        var actor = jwt().authorities(new SimpleGrantedAuthority("ROLE_ROOT_ADMIN"))
+                .jwt(token -> token.claim("uid", UUID.randomUUID().toString()).claim("role", "ROOT_ADMIN"));
+        MockMultipartFile file = new MockMultipartFile("file", "payload.html", "text/plain",
+                "<script>alert(1)</script>".getBytes());
+
+        mvc.perform(multipart("/api/v1/projects/" + projectId + "/attachments/content").file(file)
+                        .param("storagePath", "projects/" + projectId + "/documents").with(actor))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("unsupported_file_type"));
     }
 }

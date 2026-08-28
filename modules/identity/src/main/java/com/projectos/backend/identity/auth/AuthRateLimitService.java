@@ -27,8 +27,12 @@ public class AuthRateLimitService {
         check("login:" + digest(email.trim().toLowerCase() + "|" + ipAddress), 5, Duration.ofMinutes(15));
     }
 
-    public void checkRefresh(String sessionToken, String ipAddress) {
-        check("refresh:" + digest(sessionToken + "|" + ipAddress), 10, Duration.ofMinutes(5));
+    public void checkRegister(String email, String ipAddress) {
+        check("register:" + digest(email.trim().toLowerCase() + "|" + ipAddress), 5, Duration.ofHours(1));
+    }
+
+    public void checkRefresh(String ipAddress) {
+        check("refresh:" + digest(ipAddress), 10, Duration.ofMinutes(5));
     }
 
     private void check(String suffix, long limit, Duration window) {

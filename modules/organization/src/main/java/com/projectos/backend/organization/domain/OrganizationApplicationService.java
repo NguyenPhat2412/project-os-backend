@@ -1,5 +1,6 @@
 package com.projectos.backend.organization.domain;
 
+import java.time.Instant;
 import java.time.ZoneId;
 import java.time.zone.ZoneRulesException;
 import java.math.BigDecimal;
@@ -10,11 +11,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.HashMap;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 import com.projectos.backend.organization.EnvironmentConfigService;
+import com.projectos.backend.organization.AiSettingsValidation;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -25,6 +26,7 @@ import com.projectos.backend.organization.web.OrganizationController;
 import com.projectos.backend.platform.api.ApiException;
 import com.projectos.backend.platform.api.PageResponse;
 import com.projectos.backend.platform.organization.OrganizationDirectory.AttendancePolicy;
+import com.projectos.backend.platform.organization.AiConfiguration;
 
 @Service
 public class OrganizationApplicationService {
@@ -69,36 +71,37 @@ public class OrganizationApplicationService {
     public JsonNode settings(UUID organizationId, UUID actor, boolean root) {
         requireAdmin(organizationId, actor, root);
         Organization organization = requireOrganization(organizationId);
-        return settingsRepository.findById(organizationId).map(OrganizationSettings::getSettings)
-                .orElseGet(() -> defaultSettings(organization));
+        return settingsReadModel(organization);
     }
 
     @Transactional
     public JsonNode updateSettings(UUID organizationId, JsonNode body, UUID actor, boolean root) {
         requireAdmin(organizationId, actor, root);
         if (body == null || !body.isObject()) throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_settings", "Settings must be an object");
+        AiSettingsValidation.validate(body.get("ai"));
         if (body.get("action") != null) throw new ApiException(HttpStatus.NOT_IMPLEMENTED, "settings_action_not_supported", "This settings action is not available");
         if (body.toString().length() > 200_000) throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "settings_too_large", "Settings payload is too large");
         Organization organization = requireOrganization(organizationId);
-        if (body.get("env") != null && environmentConfig.isFileConfigured()) {
-            environmentConfig.update(environmentValues((ObjectNode) body.get("env")));
+        if (body.get("env") != null) {
+            throw new ApiException(HttpStatus.CONFLICT, "environment_config_endpoint_required",
+                    "Cấu hình máy chủ cần được cập nhật qua khu vực cấu hình kết nối hệ thống.");
         }
-        ObjectNode next = (ObjectNode) defaultSettings(organization);
-        settingsRepository.findById(organizationId).ifPresent(existing -> merge(next, existing.getSettings()));
-        ObjectNode safeBody = (ObjectNode) body.deepCopy();
-        removeMaskedEnvironmentValues(safeBody);
+        ObjectNode next = settingsReadModel(organization);
+        ObjectNode safeBody = sanitizeSettingsInput(body);
         merge(next, safeBody);
+        next.put("updatedAt", Instant.now().toString());
+        next.put("updatedBy", actor.toString());
         OrganizationSettings settings = settingsRepository.findById(organizationId)
                 .orElseGet(() -> new OrganizationSettings(organizationId, next, actor));
         settings.replace(next, actor);
-        return settingsRepository.save(settings).getSettings();
+        settingsRepository.save(settings);
+        return settingsReadModel(organization);
     }
 
     @Transactional(readOnly = true)
     public AttendancePolicy attendancePolicy(UUID organizationId) {
         Organization organization = requireOrganization(organizationId);
-        JsonNode root = settingsRepository.findById(organizationId).map(OrganizationSettings::getSettings)
-                .orElseGet(() -> defaultSettings(organization));
+        JsonNode root = settingsReadModel(organization);
         JsonNode hr = root.path("hr");
         double latitude = hr.path("officeLatitude").asDouble(0);
         double longitude = hr.path("officeLongitude").asDouble(0);
@@ -106,6 +109,19 @@ public class OrganizationApplicationService {
         boolean configured = radius > 0 && latitude != 0 && longitude != 0;
         return new AttendancePolicy(configured, latitude, longitude, radius,
                 hr.path("organizationName").asText(organization.getName()));
+    }
+
+    public AiConfiguration aiConfiguration(UUID organizationId) {
+        JsonNode root = settingsReadModel(requireOrganization(organizationId));
+        JsonNode ai = root.path("ai");
+        Set<String> allowed = new java.util.LinkedHashSet<>();
+        JsonNode configured = ai.path("allowedModelIds");
+        if (configured.isArray()) {
+            configured.forEach(item -> {
+                if (item.isTextual() && !item.asText().isBlank()) allowed.add(item.asText().trim());
+            });
+        }
+        return new AiConfiguration(allowed, ai.path("modelName").asText(""));
     }
 
     private void merge(ObjectNode target, JsonNode source) {
@@ -119,112 +135,171 @@ public class OrganizationApplicationService {
         });
     }
 
+    private ObjectNode sanitizeSettingsInput(JsonNode source) {
+        return (ObjectNode) sanitizeSettingsNode(source, true);
+    }
+
+    private JsonNode sanitizeSettingsNode(JsonNode source, boolean rejectSecrets) {
+        if (source == null || source.isNull()) return mapper.createObjectNode();
+        if (source.isObject()) {
+            ObjectNode result = mapper.createObjectNode();
+            source.properties().forEach(field -> {
+                String name = field.getKey();
+                JsonNode value = field.getValue();
+                if (isSensitiveSetting(name)) {
+                    String text = value == null || value.isNull() ? "" : value.asText("");
+                    if (rejectSecrets && !text.isBlank() && !EnvironmentConfigService.MASKED_VALUE.equals(text)) {
+                        throw new ApiException(HttpStatus.CONFLICT, "secret_must_use_environment_config",
+                                "Sensitive credentials must be configured through the protected environment settings.");
+                    }
+                    result.put(name, EnvironmentConfigService.MASKED_VALUE);
+                } else {
+                    result.set(name, sanitizeSettingsNode(value, rejectSecrets));
+                }
+            });
+            return result;
+        }
+        if (source.isArray()) {
+            var result = mapper.createArrayNode();
+            source.forEach(value -> result.add(sanitizeSettingsNode(value, rejectSecrets)));
+            return result;
+        }
+        return source.deepCopy();
+    }
+
+    private boolean isSensitiveSetting(String name) {
+        String normalized = name == null ? "" : name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+        return normalized.contains("password") || normalized.contains("token") || normalized.contains("secret")
+                || normalized.contains("apikey") || normalized.contains("accesskey")
+                || normalized.contains("privatekey") || normalized.contains("clientsecret")
+                || normalized.contains("webhookurl");
+    }
+
+    /**
+     * Builds the stable settings contract consumed by the administrator UI and
+     * operational read paths. Older rows may contain only a subset of groups,
+     * so persisted values are merged over organization-aware defaults. Runtime
+     * environment values are always rebuilt from the server-side source and
+     * cannot be overridden by JSON stored in the organization row.
+     */
+    private ObjectNode settingsReadModel(Organization organization) {
+        ObjectNode normalized = (ObjectNode) defaultSettings(organization);
+        OrganizationSettings persisted = settingsRepository.findById(organization.getId()).orElse(null);
+        if (persisted == null) return normalized;
+
+        JsonNode saved = persisted.getSettings();
+        if (saved == null || !saved.isObject()) return normalized;
+
+        ObjectNode safeSaved = (ObjectNode) sanitizeSettingsNode(saved, false);
+        safeSaved.remove("env");
+        JsonNode savedMessenger = safeSaved.get("messenger");
+        if (savedMessenger != null && savedMessenger.isObject()) {
+            ObjectNode messenger = (ObjectNode) savedMessenger;
+            messenger.remove("wsUrl");
+            messenger.remove("wsPort");
+            messenger.remove("s3BucketName");
+            messenger.remove("s3Region");
+            if ("AWS_S3".equals(messenger.path("storageProvider").asText())
+                    || "MINIO".equals(messenger.path("storageProvider").asText())) {
+                messenger.put("storageProvider", "OBJECT_STORAGE");
+            }
+        }
+        JsonNode savedAi = safeSaved.get("ai");
+        boolean hasPersistedAiKey = savedAi != null && savedAi.isObject()
+                && !savedAi.path("apiKeyMasked").asText("").isBlank();
+        merge(normalized, safeSaved);
+
+        if (hasPersistedAiKey) {
+            ((ObjectNode) normalized.withObject("ai")).put("apiKeyMasked", EnvironmentConfigService.MASKED_VALUE);
+        }
+        normalized.put("updatedAt", persisted.getUpdatedAt().toString());
+        if (persisted.getUpdatedBy() != null) normalized.put("updatedBy", persisted.getUpdatedBy().toString());
+        return normalized;
+    }
+
     private JsonNode defaultSettings(Organization organization) {
         ObjectNode root = mapper.createObjectNode();
         ObjectNode general = root.putObject("general");
         general.put("companyName", organization.getName()); general.put("brandName", organization.getName()); general.put("taxCode", ""); general.put("website", ""); general.put("headquartersAddress", ""); general.put("supportPhone", ""); general.put("supportEmail", ""); general.put("timezone", organization.getTimezone()); general.put("currency", "VND"); general.put("dateFormat", "DD/MM/YYYY");
-        ObjectNode ai = root.putObject("ai"); ai.put("provider", "OPENAI"); ai.put("modelName", ""); ai.put("temperature", 0.3); ai.put("maxOutputTokens", 2000); ai.put("enableTaskBugAssistant", false); ai.put("enableAttendanceAnomalyDetection", false); ai.put("enableDailyReportSummarizer", false); ai.put("enableContractJDGenerator", false); ai.put("apiKeyMasked", "");
+        ObjectNode ai = root.putObject("ai"); ai.put("provider", "NINEROUTER"); ai.put("modelName", ""); ai.putArray("allowedModelIds"); ai.put("temperature", 0.3); ai.put("maxOutputTokens", 2000); ai.put("enableTaskBugAssistant", false); ai.put("enableAttendanceAnomalyDetection", false); ai.put("enableDailyReportSummarizer", false); ai.put("enableContractJDGenerator", false); ai.put("apiKeyMasked", "");
         ObjectNode project = root.putObject("project"); project.put("defaultSprintDurationWeeks", 2); project.put("sprintStartDay", "monday"); project.put("autoCloseSprintOnEndDate", false); ObjectNode sla = project.putObject("bugSlaHours"); sla.put("p0Critical", 4); sla.put("p1High", 24); sla.put("p2Medium", 72); sla.put("p3Low", 168); project.put("budgetWarningThresholdPercent", 80); project.put("enableOverdueNotifications", true); project.put("requireTaskReviewBeforeDone", false);
         ObjectNode hr = root.putObject("hr"); hr.put("organizationId", organization.getId().toString()); hr.put("organizationName", organization.getName()); hr.put("gpsCheckInRadiusMeters", 100); hr.put("officeLatitude", 0); hr.put("officeLongitude", 0); hr.put("workShiftMorningStart", "08:00"); hr.put("workShiftMorningEnd", "12:00"); hr.put("workShiftAfternoonStart", "13:30"); hr.put("workShiftAfternoonEnd", "17:30"); hr.put("allowLateGraceMinutes", 10); hr.put("annualLeaveDaysPerYear", 12); hr.put("seniorityBonusLeaveYears", 0); hr.put("contractExpiringAlertDays", 30); hr.put("maternityNursingMonths", 0); hr.put("autoLockOutOfRadiusCheckIn", false);
-        ObjectNode messenger = root.putObject("messenger"); messenger.put("wsUrl", ""); messenger.put("wsPort", 0); messenger.put("storageProvider", "LOCAL_SERVER"); messenger.put("s3BucketName", ""); messenger.put("s3Region", ""); messenger.put("maxAttachmentSizeMb", 25); messenger.put("allowedExtensions", ""); messenger.put("autoCleanTempFilesDays", 0);
+        ObjectNode messenger = root.putObject("messenger"); messenger.put("storageProvider", "LOCAL_SERVER"); messenger.put("maxAttachmentSizeMb", 25); messenger.put("allowedExtensions", ""); messenger.put("autoCleanTempFilesDays", 0);
         ObjectNode notifications = root.putObject("notifications"); notifications.put("smtpHost", ""); notifications.put("smtpPort", 587); notifications.put("smtpEncryption", "TLS"); notifications.put("smtpSenderAddress", ""); notifications.put("smtpSenderName", ""); notifications.put("smtpUser", ""); notifications.put("smtpPasswordMasked", ""); notifications.put("enableEmailOnLeaveRequest", false); notifications.put("enableEmailOnWorkplaceAccident", false); notifications.put("enableEmailOnContractExpiry", false); notifications.put("enableTelegramWebhook", false); notifications.put("telegramBotTokenMasked", ""); notifications.put("telegramChatId", ""); notifications.put("enableSlackWebhook", false); notifications.put("slackWebhookUrl", "");
         ObjectNode security = root.putObject("security"); security.put("enforce2FAForAdmins", false); security.put("sessionTimeoutMinutes", 480); security.put("maxFailedLoginAttempts", 5); security.put("lockoutDurationMinutes", 15); security.put("ipWhitelistEnabled", false); security.putArray("allowedIpRanges"); security.put("autoDailyBackupEnabled", false); security.put("backupTimeUtc", ""); security.put("backupRetentionDays", 30);
-        ObjectNode env = root.putObject("env"); env.put("projectOsApiPublicUrl", ""); env.put("projectOsApiInternalUrl", ""); env.put("gatewayPort", 0); env.put("corsAllowedOrigins", ""); env.put("postgresHost", ""); env.put("postgresPort", 0); env.put("postgresDb", ""); env.put("postgresUser", ""); env.put("postgresPasswordMasked", ""); env.put("redisHost", ""); env.put("redisPort", 0); env.put("nextPublicWsUrl", ""); env.put("wsPort", 0); env.put("s3Bucket", ""); env.put("s3Region", ""); env.put("s3AccessKey", ""); env.put("s3SecretKeyMasked", ""); env.put("s3Endpoint", ""); env.put("minioRootUser", ""); env.put("minioRootPasswordMasked", ""); env.put("jwtSecretMasked", ""); env.put("internalServiceTokenMasked", ""); env.put("bootstrapAdminEmail", ""); env.put("bootstrapAdminPasswordMasked", ""); env.put("bootstrapAdminName", ""); env.put("anthropicApiKeyMasked", ""); env.put("geminiApiKeyMasked", ""); env.put("googleClientId", ""); env.put("googleClientSecretMasked", ""); env.put("googleOauthRedirectUri", "");
+        ObjectNode env = root.putObject("env");
+        env.put("serverPort", 0); env.put("publicWebUrl", ""); env.put("corsAllowedOrigins", "");
+        env.put("dbUrl", ""); env.put("dbUsername", ""); env.put("dbPasswordMasked", ""); env.put("dbPoolSize", 0);
+        env.put("redisHost", ""); env.put("redisPort", 0); env.put("redisPasswordMasked", ""); env.put("redisSsl", false);
+        env.put("jwtSecretMasked", ""); env.put("internalServiceTokenMasked", ""); env.put("jwtTtlHours", 0); env.put("cookieSecure", false); env.put("rateLimitEnabled", false);
+        env.put("openapiEnabled", false); env.put("openapiPublic", false);
+        env.put("ninerouterUrl", ""); env.put("ninerouterKeyMasked", ""); env.put("ninerouterConnectTimeout", ""); env.put("ninerouterReadTimeout", "");
+        env.put("objectStorageEndpoint", ""); env.put("objectStorageAccessKeyMasked", ""); env.put("objectStorageSecretKeyMasked", ""); env.put("objectStorageBucket", "");
+        env.put("emailWorkerEnabled", false); env.put("emailWorkerIntervalMs", 0); env.put("emailWorkerBatchSize", 0); env.put("emailWorkerMaxAttempts", 0);
+        env.put("smtpUsername", ""); env.put("smtpPasswordMasked", ""); env.put("smtpConnectTimeoutMs", 0); env.put("smtpTimeoutMs", 0);
+        env.put("outboxEnabled", false); env.put("outboxIntervalMs", 0); env.put("maxFileSize", ""); env.put("maxRequestSize", "");
+        env.put("bootstrapAdminEnabled", false); env.put("bootstrapAdminEmail", ""); env.put("bootstrapAdminPasswordMasked", ""); env.put("bootstrapAdminName", "");
+        env.put("googleClientId", ""); env.put("googleClientSecretMasked", ""); env.put("googleOauthRedirectUri", ""); env.put("googleOauthSuccessUrl", "");
         applyEnvironmentSnapshot(env);
-        env.put("environmentFileConfigured", environmentConfig.isFileConfigured());
         root.put("updatedAt", ""); root.put("updatedBy", "");
         return root;
     }
 
     private void applyEnvironmentSnapshot(ObjectNode env) {
         Map<String, String> values = environmentConfig.snapshot();
-        env.put("projectOsApiPublicUrl", value(values, "PROJECT_OS_API_PUBLIC_URL"));
-        env.put("projectOsApiInternalUrl", value(values, "PROJECT_OS_API_INTERNAL_URL"));
-        env.put("gatewayPort", integer(values, "GATEWAY_PORT"));
+        env.put("serverPort", integer(values, "SERVER_PORT"));
+        env.put("publicWebUrl", value(values, "PUBLIC_WEB_URL"));
         env.put("corsAllowedOrigins", value(values, "CORS_ALLOWED_ORIGINS"));
-        env.put("postgresHost", value(values, "POSTGRES_HOST"));
-        env.put("postgresPort", integer(values, "POSTGRES_PORT"));
-        env.put("postgresDb", value(values, "POSTGRES_DB"));
-        env.put("postgresUser", value(values, "POSTGRES_USER"));
-        env.put("postgresPasswordMasked", value(values, "POSTGRES_PASSWORD"));
+        env.put("dbUrl", value(values, "DB_URL"));
+        env.put("dbUsername", value(values, "DB_USERNAME"));
+        env.put("dbPasswordMasked", value(values, "DB_PASSWORD"));
+        env.put("dbPoolSize", integer(values, "DB_POOL_SIZE"));
         env.put("redisHost", value(values, "REDIS_HOST"));
         env.put("redisPort", integer(values, "REDIS_PORT"));
-        env.put("nextPublicWsUrl", value(values, "NEXT_PUBLIC_WS_URL"));
-        env.put("wsPort", integer(values, "WS_PORT"));
-        env.put("s3Bucket", value(values, "S3_BUCKET"));
-        env.put("s3Region", value(values, "S3_REGION"));
-        env.put("s3AccessKey", value(values, "S3_ACCESS_KEY"));
-        env.put("s3SecretKeyMasked", value(values, "S3_SECRET_KEY"));
-        env.put("s3Endpoint", value(values, "S3_ENDPOINT"));
-        env.put("minioRootUser", value(values, "MINIO_ROOT_USER"));
-        env.put("minioRootPasswordMasked", value(values, "MINIO_ROOT_PASSWORD"));
+        env.put("redisPasswordMasked", value(values, "REDIS_PASSWORD"));
+        env.put("redisSsl", bool(values, "REDIS_SSL"));
         env.put("jwtSecretMasked", value(values, "JWT_SECRET"));
         env.put("internalServiceTokenMasked", value(values, "INTERNAL_SERVICE_TOKEN"));
+        env.put("jwtTtlHours", integer(values, "JWT_TTL_HOURS"));
+        env.put("cookieSecure", bool(values, "COOKIE_SECURE"));
+        env.put("rateLimitEnabled", bool(values, "RATE_LIMIT_ENABLED"));
+        env.put("openapiEnabled", bool(values, "OPENAPI_ENABLED"));
+        env.put("openapiPublic", bool(values, "OPENAPI_PUBLIC"));
+        env.put("ninerouterUrl", value(values, "NINEROUTER_URL"));
+        env.put("ninerouterKeyMasked", value(values, "NINEROUTER_KEY"));
+        env.put("ninerouterConnectTimeout", value(values, "NINEROUTER_CONNECT_TIMEOUT"));
+        env.put("ninerouterReadTimeout", value(values, "NINEROUTER_READ_TIMEOUT"));
+        env.put("objectStorageEndpoint", value(values, "OBJECT_STORAGE_ENDPOINT"));
+        env.put("objectStorageAccessKeyMasked", value(values, "OBJECT_STORAGE_ACCESS_KEY"));
+        env.put("objectStorageSecretKeyMasked", value(values, "OBJECT_STORAGE_SECRET_KEY"));
+        env.put("objectStorageBucket", value(values, "OBJECT_STORAGE_BUCKET"));
+        env.put("emailWorkerEnabled", bool(values, "EMAIL_WORKER_ENABLED"));
+        env.put("emailWorkerIntervalMs", integer(values, "EMAIL_WORKER_INTERVAL_MS"));
+        env.put("emailWorkerBatchSize", integer(values, "EMAIL_WORKER_BATCH_SIZE"));
+        env.put("emailWorkerMaxAttempts", integer(values, "EMAIL_WORKER_MAX_ATTEMPTS"));
+        env.put("smtpUsername", value(values, "SMTP_USERNAME"));
+        env.put("smtpPasswordMasked", value(values, "SMTP_PASSWORD"));
+        env.put("smtpConnectTimeoutMs", integer(values, "SMTP_CONNECT_TIMEOUT_MS"));
+        env.put("smtpTimeoutMs", integer(values, "SMTP_TIMEOUT_MS"));
+        env.put("outboxEnabled", bool(values, "OUTBOX_ENABLED"));
+        env.put("outboxIntervalMs", integer(values, "OUTBOX_INTERVAL_MS"));
+        env.put("maxFileSize", value(values, "MAX_FILE_SIZE"));
+        env.put("maxRequestSize", value(values, "MAX_REQUEST_SIZE"));
+        env.put("bootstrapAdminEnabled", bool(values, "BOOTSTRAP_ADMIN_ENABLED"));
         env.put("bootstrapAdminEmail", value(values, "BOOTSTRAP_ADMIN_EMAIL"));
         env.put("bootstrapAdminPasswordMasked", value(values, "BOOTSTRAP_ADMIN_PASSWORD"));
         env.put("bootstrapAdminName", value(values, "BOOTSTRAP_ADMIN_NAME"));
-        env.put("anthropicApiKeyMasked", value(values, "ANTHROPIC_API_KEY"));
-        env.put("geminiApiKeyMasked", value(values, "GEMINI_API_KEY"));
         env.put("googleClientId", value(values, "GOOGLE_CLIENT_ID"));
         env.put("googleClientSecretMasked", value(values, "GOOGLE_CLIENT_SECRET"));
         env.put("googleOauthRedirectUri", value(values, "GOOGLE_OAUTH_REDIRECT_URI"));
-    }
-
-    private Map<String, String> environmentValues(ObjectNode env) {
-        Map<String, String> values = new HashMap<>();
-        put(values, "PROJECT_OS_API_PUBLIC_URL", env, "projectOsApiPublicUrl");
-        put(values, "PROJECT_OS_API_INTERNAL_URL", env, "projectOsApiInternalUrl");
-        put(values, "GATEWAY_PORT", env, "gatewayPort");
-        put(values, "CORS_ALLOWED_ORIGINS", env, "corsAllowedOrigins");
-        put(values, "POSTGRES_HOST", env, "postgresHost");
-        put(values, "POSTGRES_PORT", env, "postgresPort");
-        put(values, "POSTGRES_DB", env, "postgresDb");
-        put(values, "POSTGRES_USER", env, "postgresUser");
-        put(values, "POSTGRES_PASSWORD", env, "postgresPasswordMasked");
-        put(values, "REDIS_HOST", env, "redisHost");
-        put(values, "REDIS_PORT", env, "redisPort");
-        put(values, "NEXT_PUBLIC_WS_URL", env, "nextPublicWsUrl");
-        put(values, "WS_PORT", env, "wsPort");
-        put(values, "S3_BUCKET", env, "s3Bucket");
-        put(values, "S3_REGION", env, "s3Region");
-        put(values, "S3_ACCESS_KEY", env, "s3AccessKey");
-        put(values, "S3_SECRET_KEY", env, "s3SecretKeyMasked");
-        put(values, "S3_ENDPOINT", env, "s3Endpoint");
-        put(values, "MINIO_ROOT_USER", env, "minioRootUser");
-        put(values, "MINIO_ROOT_PASSWORD", env, "minioRootPasswordMasked");
-        put(values, "JWT_SECRET", env, "jwtSecretMasked");
-        put(values, "INTERNAL_SERVICE_TOKEN", env, "internalServiceTokenMasked");
-        put(values, "BOOTSTRAP_ADMIN_EMAIL", env, "bootstrapAdminEmail");
-        put(values, "BOOTSTRAP_ADMIN_PASSWORD", env, "bootstrapAdminPasswordMasked");
-        put(values, "BOOTSTRAP_ADMIN_NAME", env, "bootstrapAdminName");
-        put(values, "ANTHROPIC_API_KEY", env, "anthropicApiKeyMasked");
-        put(values, "GEMINI_API_KEY", env, "geminiApiKeyMasked");
-        put(values, "GOOGLE_CLIENT_ID", env, "googleClientId");
-        put(values, "GOOGLE_CLIENT_SECRET", env, "googleClientSecretMasked");
-        put(values, "GOOGLE_OAUTH_REDIRECT_URI", env, "googleOauthRedirectUri");
-        return values;
-    }
-
-    private void removeMaskedEnvironmentValues(ObjectNode body) {
-        JsonNode env = body.get("env");
-        if (!(env instanceof ObjectNode environment)) return;
-        List<String> maskedFields = new java.util.ArrayList<>();
-        environment.properties().forEach(entry -> {
-            if (entry.getKey().endsWith("Masked") && EnvironmentConfigService.MASKED_VALUE.equals(entry.getValue().asText())) {
-                maskedFields.add(entry.getKey());
-            }
-        });
-        maskedFields.forEach(environment::remove);
-    }
-
-    private void put(Map<String, String> target, String key, ObjectNode source, String field) {
-        if (source.has(field) && !source.get(field).isNull()) target.put(key, source.get(field).asText());
+        env.put("googleOauthSuccessUrl", value(values, "GOOGLE_OAUTH_SUCCESS_URL"));
     }
 
     private String value(Map<String, String> values, String key) { return values.getOrDefault(key, ""); }
     private int integer(Map<String, String> values, String key) {
         try { return Integer.parseInt(value(values, key)); } catch (NumberFormatException ignored) { return 0; }
     }
+    private boolean bool(Map<String, String> values, String key) { return Boolean.parseBoolean(value(values, key)); }
 
     @Transactional(readOnly = true)
     public PageResponse<OrganizationController.OrganizationView> organizations(int page, int size, UUID actor, boolean root) {
@@ -442,9 +517,10 @@ public class OrganizationApplicationService {
     public void deleteEmployee(UUID organizationId, UUID employeeId, UUID actor, boolean root) {
         requireHrOrAdmin(organizationId, actor, root);
         Employee employee = requireEmployee(organizationId, employeeId);
+        Map<String, Object> before = employeeSnapshot(employee);
+        employee.markDeleted();
         audit.record(organizationId, actor, "employee_deleted", "employee", employeeId,
-                employeeSnapshot(employee), null, null);
-        employees.delete(employee);
+                before, employeeSnapshot(employee), null);
         workspaceCache.invalidateSubject(employee.getUserId());
     }
 
@@ -715,11 +791,11 @@ public class OrganizationApplicationService {
         return switch (systemRole) {
             case "PLATFORM_ADMIN" -> Set.of("dashboard", "projects", "tasks", "daily-reports", "attendance", "company-rules",
                     "organization", "employees", "project-management", "operations", "knowledge", "activity",
-                    "reports", "admin");
-            case "HR" -> Set.of("dashboard", "attendance", "company-rules", "organization", "employees");
+                    "reports", "admin", "ai");
+            case "HR" -> Set.of("dashboard", "attendance", "company-rules", "organization", "employees", "ai");
             case "DEPARTMENT_MANAGER" -> Set.of("dashboard", "projects", "tasks", "daily-reports", "attendance", "company-rules",
-                    "employees", "project-management", "reports");
-            default -> Set.of("dashboard", "tasks", "daily-reports", "attendance", "company-rules", "profile");
+                    "employees", "project-management", "reports", "ai");
+            default -> Set.of("dashboard", "tasks", "daily-reports", "attendance", "company-rules", "profile", "ai");
         };
     }
 

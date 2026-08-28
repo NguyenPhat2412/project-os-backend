@@ -16,6 +16,8 @@ springdoc:
     enabled: false
 
 app:
+  environment-config:
+    read-only: true
   cookie:
     secure: true
   security:

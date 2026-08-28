@@ -12,7 +12,9 @@
 !scripts/
 !scripts/**
 **/target
+._*
 **/._*
+*.DS_Store
 **/.DS_Store
 **/.AppleDouble/**
 **/.LSOverride

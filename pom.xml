@@ -24,6 +24,7 @@
         <module>modules/work</module>
         <module>modules/operations</module>
         <module>modules/knowledge</module>
+        <module>modules/ai</module>
         <module>modules/activity</module>
         <module>application/monolith-app</module>
     </modules>

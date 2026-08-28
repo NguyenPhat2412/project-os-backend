@@ -28,7 +28,7 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     ResponseEntity<ApiErrorResponse> api(ApiException exception, HttpServletRequest request) {
-        return response(exception.status(), exception.code(), exception.getMessage(), Map.of(), request);
+        return response(exception.status(), exception.code(), exception.getMessage(), exception.fieldErrors(), request);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

@@ -45,6 +45,11 @@ public class Employee {
         if (status != null) this.status = status;
     }
     public void linkUser(UUID userId) { this.userId = userId; }
+    public void markDeleted() {
+        this.deleted = true;
+        this.deletedAt = Instant.now();
+        this.status = Status.INACTIVE;
+    }
     public UUID getId() { return id; } public UUID getOrganizationId() { return organizationId; } public UUID getDepartmentId() { return departmentId; }
     public UUID getSupervisorId() { return supervisorId; } public UUID getUserId() { return userId; } public String getCode() { return code; }
     public String getFullName() { return fullName; } public String getEmail() { return email; } public String getPhone() { return phone; }

@@ -4,6 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -29,6 +30,9 @@ import com.projectos.backend.operations.web.OperationsResourceMapper;
 /** Read port for the verified legacy HRM tables still present in public schema. */
 @Service
 public class OperationsApplicationService {
+    private static final java.util.Set<String> HR_RESOURCES = java.util.Set.of(
+            "contracts", "contract-warnings", "kpi", "leave", "leave-balances", "offboarding",
+            "training", "regulations", "company-emails", "reports", "teams", "branches");
     private final JdbcTemplate jdbc;
     private final ObjectProvider<OrganizationDirectory> organizations;
     private final ObjectMapper json = new ObjectMapper();
@@ -86,7 +90,7 @@ public class OperationsApplicationService {
         if (page < 0 || size < 1 || size > 200) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_pagination", "Invalid pagination");
         }
-        requireOrganizationAccess(organizationId, actorId, root);
+        requireOperationsAccess(organizationId, resource, actorId, root);
         Query query = queryFor(resource, organizationId, category);
         List<Map<String, Object>> rows = query.parameters().isEmpty()
                 ? jdbc.queryForList(query.sql())
@@ -112,7 +116,7 @@ public class OperationsApplicationService {
 
     @Transactional
     public Map<String, Object> create(UUID organizationId, String resource, Map<String, Object> payload, UUID actorId, boolean root) {
-        requireOrganizationAccess(organizationId, actorId, root);
+        requireOperationsAccess(organizationId, resource, actorId, root);
         UUID id = UUID.randomUUID();
         String normalized = normalizeResource(resource);
         switch (normalized) {
@@ -120,8 +124,14 @@ public class OperationsApplicationService {
                     id, organizationId, required(payload, "courseCode", "course code"), required(payload, "name", "name"), text(payload, "category"), text(payload, "instructor", "trainer"), timestamp(payload, "startDate"), timestamp(payload, "endDate"), text(payload, "location"), integer(payload, "sessions"), integer(payload, "attendeesCount"), decimal(payload, "cost"), enumValue(payload, "status", "PLANNED"), text(payload, "notes"), actorId, actorId);
             case "regulations" -> jdbc.update("insert into public.company_regulations (id, organization_id, code, title, category, description, penalties, effective_date, status, created_by, updated_by) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     id, organizationId, required(payload, "code", "code"), required(payload, "title", "title"), text(payload, "category"), text(payload, "description"), text(payload, "penalties"), date(payload, "effectiveDate"), enumValue(payload, "status", "DRAFT"), actorId, actorId);
-            case "company-emails" -> jdbc.update("insert into public.company_email_accounts (id, organization_id, email_address, display_name, assigned_employee_id, department_id, mailbox_type, storage_quota_mb, status, aliases, forward_to, notes, created_by, updated_by) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    id, organizationId, required(payload, "emailAddress", "email address"), required(payload, "displayName", "display name"), uuid(payload, "assignedEmployeeId", "employeeId"), uuid(payload, "departmentId"), enumValue(payload, "mailboxType", "PERSONAL"), integerOrZero(payload, "quotaTotalMb", "storageQuotaMb"), enumValue(payload, "status", "ACTIVE"), aliases(payload.get("aliases")), text(payload, "forwardTo"), text(payload, "notes"), actorId, actorId);
+            case "company-emails" -> {
+                UUID assignedEmployeeId = uuid(payload, "assignedEmployeeId", "employeeId");
+                UUID departmentId = uuid(payload, "departmentId");
+                if (assignedEmployeeId != null) verifyActiveEmployee(organizationId, assignedEmployeeId);
+                if (departmentId != null) verifyDepartment(organizationId, departmentId);
+                jdbc.update("insert into public.company_email_accounts (id, organization_id, email_address, display_name, assigned_employee_id, department_id, mailbox_type, storage_quota_mb, status, aliases, forward_to, notes, created_by, updated_by) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        id, organizationId, required(payload, "emailAddress", "email address"), required(payload, "displayName", "display name"), assignedEmployeeId, departmentId, enumValue(payload, "mailboxType", "PERSONAL"), integerOrZero(payload, "quotaTotalMb", "storageQuotaMb"), enumValue(payload, "status", "ACTIVE"), aliases(payload.get("aliases")), text(payload, "forwardTo"), text(payload, "notes"), actorId, actorId);
+            }
             case "reports" -> jdbc.update("insert into public.report_definitions (id, organization_id, name, category, period, start_date, end_date, department_id, employee_filter, notes, created_by, updated_by) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     id, organizationId, required(payload, "name", "name"), text(payload, "category"), text(payload, "period"), date(payload, "startDate"), date(payload, "endDate"), uuid(payload, "departmentId"), text(payload, "employees", "employeeFilter"), text(payload, "notes"), actorId, actorId);
             case "contracts" -> createContract(organizationId, payload);
@@ -142,12 +152,18 @@ public class OperationsApplicationService {
 
     @Transactional
     public Map<String, Object> update(UUID organizationId, String resource, String id, Map<String, Object> payload, UUID actorId, boolean root) {
-        requireOrganizationAccess(organizationId, actorId, root);
+        requireOperationsAccess(organizationId, resource, actorId, root);
         String normalized = normalizeResource(resource);
         int changed = switch (normalized) {
             case "training" -> jdbc.update("update public.training_courses set course_code=coalesce(?, course_code), name=coalesce(?, name), category=coalesce(?, category), instructor=coalesce(?, instructor), start_date=coalesce(?, start_date), end_date=coalesce(?, end_date), location=coalesce(?, location), sessions_count=coalesce(?, sessions_count), attendees_count=coalesce(?, attendees_count), cost=coalesce(?, cost), status=coalesce(?, status), notes=coalesce(?, notes), updated_by=?, updated_at=now() where organization_id=? and id=?", requiredOrNull(payload, "courseCode"), text(payload, "name"), text(payload, "category"), text(payload, "instructor", "trainer"), timestamp(payload, "startDate"), timestamp(payload, "endDate"), text(payload, "location"), integer(payload, "sessions"), integer(payload, "attendeesCount"), decimal(payload, "cost"), enumValue(payload, "status", null), text(payload, "notes"), actorId, organizationId, uuidId(id));
             case "regulations" -> jdbc.update("update public.company_regulations set code=coalesce(?, code), title=coalesce(?, title), category=coalesce(?, category), description=coalesce(?, description), penalties=coalesce(?, penalties), effective_date=coalesce(?, effective_date), status=coalesce(?, status), updated_by=?, updated_at=now() where organization_id=? and id=?", requiredOrNull(payload, "code"), text(payload, "title"), text(payload, "category"), text(payload, "description"), text(payload, "penalties"), date(payload, "effectiveDate"), enumValue(payload, "status", null), actorId, organizationId, uuidId(id));
-            case "company-emails" -> jdbc.update("update public.company_email_accounts set email_address=coalesce(?, email_address), display_name=coalesce(?, display_name), assigned_employee_id=coalesce(?, assigned_employee_id), department_id=coalesce(?, department_id), mailbox_type=coalesce(?, mailbox_type), storage_quota_mb=coalesce(?, storage_quota_mb), status=coalesce(?, status), forward_to=coalesce(?, forward_to), notes=coalesce(?, notes), updated_by=?, updated_at=now() where organization_id=? and id=?", requiredOrNull(payload, "emailAddress"), text(payload, "displayName"), uuid(payload, "assignedEmployeeId", "employeeId"), uuid(payload, "departmentId"), enumValue(payload, "mailboxType", null), integer(payload, "quotaTotalMb", "storageQuotaMb"), enumValue(payload, "status", null), text(payload, "forwardTo"), text(payload, "notes"), actorId, organizationId, uuidId(id));
+            case "company-emails" -> {
+                UUID assignedEmployeeId = uuid(payload, "assignedEmployeeId", "employeeId");
+                UUID departmentId = uuid(payload, "departmentId");
+                if (assignedEmployeeId != null) verifyActiveEmployee(organizationId, assignedEmployeeId);
+                if (departmentId != null) verifyDepartment(organizationId, departmentId);
+                yield jdbc.update("update public.company_email_accounts set email_address=coalesce(?, email_address), display_name=coalesce(?, display_name), assigned_employee_id=coalesce(?, assigned_employee_id), department_id=coalesce(?, department_id), mailbox_type=coalesce(?, mailbox_type), storage_quota_mb=coalesce(?, storage_quota_mb), status=coalesce(?, status), forward_to=coalesce(?, forward_to), notes=coalesce(?, notes), updated_by=?, updated_at=now() where organization_id=? and id=?", requiredOrNull(payload, "emailAddress"), text(payload, "displayName"), assignedEmployeeId, departmentId, enumValue(payload, "mailboxType", null), integer(payload, "quotaTotalMb", "storageQuotaMb"), enumValue(payload, "status", null), text(payload, "forwardTo"), text(payload, "notes"), actorId, organizationId, uuidId(id));
+            }
             case "reports" -> jdbc.update("update public.report_definitions set name=coalesce(?, name), category=coalesce(?, category), period=coalesce(?, period), start_date=coalesce(?, start_date), end_date=coalesce(?, end_date), department_id=coalesce(?, department_id), employee_filter=coalesce(?, employee_filter), notes=coalesce(?, notes), updated_by=?, updated_at=now() where organization_id=? and id=?", text(payload, "name"), text(payload, "category"), text(payload, "period"), date(payload, "startDate"), date(payload, "endDate"), uuid(payload, "departmentId"), text(payload, "employees", "employeeFilter"), text(payload, "notes"), actorId, organizationId, uuidId(id));
             case "contracts" -> updateContract(organizationId, id, payload);
             case "kpi" -> updateKpi(organizationId, id, payload);
@@ -165,7 +181,7 @@ public class OperationsApplicationService {
     @Transactional
     public Map<String, Object> queueContractWarningReminder(UUID organizationId, String contractId,
                                                               UUID actorId, boolean root) {
-        requireOrganizationAccess(organizationId, actorId, root);
+        requireOperationsAccess(organizationId, "contract-warnings", actorId, root);
         List<Map<String, Object>> rows = jdbc.queryForList("select c.contract_code, c.employee_name, coalesce(e.email, '') as recipient_email "
                 + "from public.enterprise_contracts c "
                 + "join public.employees e on e.id = c.employee_uuid and e.organization_id = ? "
@@ -196,7 +212,7 @@ public class OperationsApplicationService {
 
     @Transactional
     public void delete(UUID organizationId, String resource, String id, UUID actorId, boolean root) {
-        requireOrganizationAccess(organizationId, actorId, root);
+        requireOperationsAccess(organizationId, resource, actorId, root);
         String table = switch (normalizeResource(resource)) {
             case "training" -> "training_courses";
             case "regulations" -> "company_regulations";
@@ -269,7 +285,10 @@ public class OperationsApplicationService {
             case "company" -> new Query("select " + projection("company", "c") + " from public.enterprise_company_profile c order by updated_at desc", List.of());
             case "training" -> new Query("select " + projection("training", "t") + " from public.training_courses t where organization_id = ? order by updated_at desc", List.of(organizationId));
             case "regulations" -> new Query("select " + projection("regulations", "r") + " from public.company_regulations r where organization_id = ? order by updated_at desc", List.of(organizationId));
-            case "company-emails" -> new Query("select " + projection("company-emails", "m") + " from public.company_email_accounts m where organization_id = ? order by updated_at desc", List.of(organizationId));
+            case "company-emails" -> new Query("select " + projection("company-emails", "m") + " from public.company_email_accounts m "
+                    + "left join public.employees e on e.id = m.assigned_employee_id and e.organization_id = m.organization_id "
+                    + "left join public.departments d on d.id = m.department_id and d.organization_id = m.organization_id "
+                    + "where m.organization_id = ? order by m.updated_at desc", List.of(organizationId));
             case "reports" -> new Query("select " + projection("reports", "r") + " from public.report_definitions r where organization_id = ? order by updated_at desc", List.of(organizationId));
             default -> throw new ApiException(HttpStatus.NOT_FOUND, "operations_resource_not_found",
                     "This operations resource has no verified public-schema owner");
@@ -331,6 +350,35 @@ public class OperationsApplicationService {
         } catch (Exception exception) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "organization_directory_unavailable",
                     "Organization directory is unavailable");
+        }
+    }
+
+    private void requireOperationsAccess(UUID organizationId, String resource, UUID actorId, boolean root) {
+        if (root) return;
+        requireOrganizationAccess(organizationId, actorId, false);
+        String normalized = normalizeResource(resource);
+        if ("master-data".equals(normalized) || "company".equals(normalized)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "root_admin_required",
+                    "Root admin access is required for global operations data");
+        }
+        if (HR_RESOURCES.contains(normalized)) {
+            OrganizationDirectory directory = organizations.getIfAvailable();
+            if (directory == null) {
+                throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "organization_directory_unavailable",
+                        "Organization directory is unavailable");
+            }
+            OrganizationDirectory.Access access;
+            try {
+                access = directory.access(organizationId, actorId);
+            } catch (Exception exception) {
+                throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "organization_directory_unavailable",
+                        "Organization directory is unavailable");
+            }
+            String role = access == null || access.role() == null ? "" : access.role().trim().toUpperCase(Locale.ROOT);
+            if (!Set.of("OWNER", "ADMIN", "HR", "SUPER_ADMIN", "PLATFORM_ADMIN", "HR_MANAGER").contains(role)) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "hr_access_required",
+                        "HR or organization admin access is required");
+            }
         }
     }
 
@@ -445,8 +493,8 @@ public class OperationsApplicationService {
 
     private int createContract(UUID organizationId, Map<String, Object> payload) {
         LegacyEmployee employee = employee(organizationId, payload);
-        return jdbc.update("insert into public.enterprise_contracts (id, employee_id, employee_uuid, employee_code, employee_name, department, \"position\", contract_code, contract_type, sign_date, effective_date, expire_date, base_salary, allowances, performance_bonus, status, warning_days_remaining) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                legacyId(payload, UUID.randomUUID()), employee.id().toString(), employee.id(), employee.code(), employee.name(), employee.department(), employee.position(),
+        return jdbc.update("insert into public.enterprise_contracts (id, employee_id, employee_uuid, organization_uuid, employee_code, employee_name, department, \"position\", contract_code, contract_type, sign_date, effective_date, expire_date, base_salary, allowances, performance_bonus, status, warning_days_remaining) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                legacyId(payload, UUID.randomUUID()), employee.id().toString(), employee.id(), employee.organizationId(), employee.code(), employee.name(), employee.department(), employee.position(),
                 required(payload, "contractCode", "contract code"), required(payload, "contractType", "contract type"), text(payload, "signDate"),
                 required(payload, "effectiveDate", "effective date"), text(payload, "expireDate"), decimalOrZero(payload, "baseSalary"), decimalOrZero(payload, "allowances"),
                 decimalOrZero(payload, "performanceBonus"), enumValue(payload, "status", "ACTIVE"), integer(payload, "warningDaysRemaining"));
@@ -454,8 +502,8 @@ public class OperationsApplicationService {
 
     private int createKpi(UUID organizationId, Map<String, Object> payload) {
         LegacyEmployee employee = employee(organizationId, payload);
-        return jdbc.update("insert into public.enterprise_kpi_evaluations (id, employee_id, employee_uuid, employee_code, employee_name, department, period, target_title, weight_percent, target_metric, actual_metric, score_percent, ranking, ranking_label, evaluator_name, evaluation_date, notes) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                legacyId(payload, UUID.randomUUID()), employee.id().toString(), employee.id(), employee.code(), employee.name(), employee.department(), required(payload, "period", "period"),
+        return jdbc.update("insert into public.enterprise_kpi_evaluations (id, employee_id, employee_uuid, organization_uuid, employee_code, employee_name, department, period, target_title, weight_percent, target_metric, actual_metric, score_percent, ranking, ranking_label, evaluator_name, evaluation_date, notes) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                legacyId(payload, UUID.randomUUID()), employee.id().toString(), employee.id(), employee.organizationId(), employee.code(), employee.name(), employee.department(), required(payload, "period", "period"),
                 required(payload, "targetTitle", "target title"), decimalOr(payload, "weightPercent", java.math.BigDecimal.valueOf(100)), text(payload, "targetMetric"), text(payload, "actualMetric"),
                 decimalOr(payload, "scorePercent", java.math.BigDecimal.valueOf(100)), enumValue(payload, "ranking", "EXCELLENT"), text(payload, "rankingLabel"), text(payload, "evaluatorName"),
                 text(payload, "evaluationDate"), text(payload, "notes"));
@@ -468,8 +516,8 @@ public class OperationsApplicationService {
         java.math.BigDecimal carried = decimalOr(payload, "carriedOver", java.math.BigDecimal.ZERO);
         java.math.BigDecimal entitled = decimalOr(payload, "totalEntitled", standard.add(seniority).add(carried));
         java.math.BigDecimal used = decimalOr(payload, "usedDays", java.math.BigDecimal.ZERO);
-        return jdbc.update("insert into public.enterprise_leave_balances (id, employee_uuid, employee_code, employee_name, department, standard_quota, seniority_bonus, carried_over, total_entitled, used_days, remaining_days, year) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                legacyId(payload, UUID.randomUUID()), employee.id(), employee.code(), employee.name(), employee.department(), standard, seniority, carried, entitled, used,
+        return jdbc.update("insert into public.enterprise_leave_balances (id, employee_uuid, organization_uuid, employee_code, employee_name, department, standard_quota, seniority_bonus, carried_over, total_entitled, used_days, remaining_days, year) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                legacyId(payload, UUID.randomUUID()), employee.id(), employee.organizationId(), employee.code(), employee.name(), employee.department(), standard, seniority, carried, entitled, used,
                 decimalOr(payload, "remainingDays", entitled.subtract(used)), payload.containsKey("year") ? integer(payload, "year") : LocalDate.now().getYear());
     }
 
@@ -562,15 +610,20 @@ public class OperationsApplicationService {
         List<Map<String, Object>> rows = jdbc.queryForList(sql, organizationId, employeeId == null ? employeeCode : employeeId);
         if (rows.isEmpty()) throw new ApiException(HttpStatus.NOT_FOUND, "employee_not_found", "Employee is not in this organization");
         Map<String, Object> row = rows.getFirst();
-        return new LegacyEmployee((UUID) row.get("id"), String.valueOf(row.get("code")), String.valueOf(row.get("full_name")), text(row, "department"), text(row, "position"));
+        return new LegacyEmployee((UUID) row.get("id"), organizationId, String.valueOf(row.get("code")), String.valueOf(row.get("full_name")), text(row, "department"), text(row, "position"));
     }
 
     private void employeeById(UUID organizationId, UUID employeeId) { employee(organizationId, Map.of("employeeId", employeeId)); }
+    private void verifyActiveEmployee(UUID organizationId, UUID employeeId) {
+        List<Map<String, Object>> rows = jdbc.queryForList("select id from public.employees where id=? and organization_id=? and upper(status)='ACTIVE'", employeeId, organizationId);
+        if (rows.isEmpty()) throw new ApiException(HttpStatus.NOT_FOUND, "employee_not_found", "Employee is not active in this organization");
+    }
+
     private void verifyDepartment(UUID organizationId, UUID departmentId) {
         List<Map<String, Object>> rows = jdbc.queryForList("select id from public.departments where id=? and organization_id=?", departmentId, organizationId);
         if (rows.isEmpty()) throw new ApiException(HttpStatus.NOT_FOUND, "department_not_found", "Department is not in this organization");
     }
-    private record LegacyEmployee(UUID id, String code, String name, String department, String position) {}
+    private record LegacyEmployee(UUID id, UUID organizationId, String code, String name, String department, String position) {}
     private String legacyId(Map<String, Object> payload, UUID generated) { return text(payload, "id") == null ? generated.toString() : text(payload, "id"); }
     private java.math.BigDecimal decimalOr(Map<String, Object> payload, String key, java.math.BigDecimal fallback) { return decimal(payload, key) == null ? fallback : decimal(payload, key); }
     private java.math.BigDecimal decimalOrZero(Map<String, Object> payload, String key) { return decimalOr(payload, key, java.math.BigDecimal.ZERO); }
@@ -581,9 +634,9 @@ public class OperationsApplicationService {
     /** Explicit projections keep the public Operations read contract stable when legacy tables gain columns. */
     private String projection(String resource, String alias) {
         return switch (normalizeResource(resource)) {
-            case "contracts" -> alias + ".id, " + alias + ".employee_id, " + alias + ".employee_uuid, " + alias + ".employee_code, " + alias + ".employee_name, " + alias + ".department, " + alias + ".\"position\", " + alias + ".contract_code, " + alias + ".contract_type, " + alias + ".sign_date, " + alias + ".effective_date, " + alias + ".expire_date, " + alias + ".base_salary, " + alias + ".allowances, " + alias + ".performance_bonus, " + alias + ".status, " + alias + ".warning_days_remaining, " + alias + ".created_at, " + alias + ".updated_at";
-            case "kpi" -> alias + ".id, " + alias + ".employee_id, " + alias + ".employee_uuid, " + alias + ".employee_code, " + alias + ".employee_name, " + alias + ".department, " + alias + ".period, " + alias + ".target_title, " + alias + ".weight_percent, " + alias + ".target_metric, " + alias + ".actual_metric, " + alias + ".score_percent, " + alias + ".ranking, " + alias + ".ranking_label, " + alias + ".evaluator_name, " + alias + ".evaluation_date, " + alias + ".notes, " + alias + ".created_at, " + alias + ".updated_at";
-            case "leave-balances" -> alias + ".id, " + alias + ".employee_uuid, " + alias + ".employee_code, " + alias + ".employee_name, " + alias + ".department, " + alias + ".standard_quota, " + alias + ".seniority_bonus, " + alias + ".carried_over, " + alias + ".total_entitled, " + alias + ".used_days, " + alias + ".remaining_days, " + alias + ".year, " + alias + ".created_at, " + alias + ".updated_at";
+            case "contracts" -> alias + ".id, " + alias + ".employee_id, " + alias + ".employee_uuid, " + alias + ".organization_uuid, " + alias + ".employee_code, " + alias + ".employee_name, " + alias + ".department, " + alias + ".\"position\", " + alias + ".contract_code, " + alias + ".contract_type, " + alias + ".sign_date, " + alias + ".effective_date, " + alias + ".expire_date, " + alias + ".base_salary, " + alias + ".allowances, " + alias + ".performance_bonus, " + alias + ".status, " + alias + ".warning_days_remaining, " + alias + ".created_at, " + alias + ".updated_at";
+            case "kpi" -> alias + ".id, " + alias + ".employee_id, " + alias + ".employee_uuid, " + alias + ".organization_uuid, " + alias + ".employee_code, " + alias + ".employee_name, " + alias + ".department, " + alias + ".period, " + alias + ".target_title, " + alias + ".weight_percent, " + alias + ".target_metric, " + alias + ".actual_metric, " + alias + ".score_percent, " + alias + ".ranking, " + alias + ".ranking_label, " + alias + ".evaluator_name, " + alias + ".evaluation_date, " + alias + ".notes, " + alias + ".created_at, " + alias + ".updated_at";
+            case "leave-balances" -> alias + ".id, " + alias + ".employee_uuid, " + alias + ".organization_uuid, " + alias + ".employee_code, " + alias + ".employee_name, " + alias + ".department, " + alias + ".standard_quota, " + alias + ".seniority_bonus, " + alias + ".carried_over, " + alias + ".total_entitled, " + alias + ".used_days, " + alias + ".remaining_days, " + alias + ".year, " + alias + ".created_at, " + alias + ".updated_at";
             case "offboarding" -> alias + ".id, " + alias + ".organization_id, " + alias + ".employee_id, " + alias + ".code, " + alias + ".employee_code, " + alias + ".employee_name, " + alias + ".department, " + alias + ".\"position\", " + alias + ".contract_code, " + alias + ".hire_date, " + alias + ".resignation_date, " + alias + ".last_working_date, " + alias + ".reason_type, " + alias + ".reason_detail, " + alias + ".status, " + alias + ".handover_receiver_id, " + alias + ".handover_receiver_name, " + alias + ".checklist, " + alias + ".unpaid_salary_amount, " + alias + ".unused_leave_days, " + alias + ".unused_leave_compensation, " + alias + ".severance_pay, " + alias + ".total_settlement_amount, " + alias + ".decision_number, " + alias + ".decision_date, " + alias + ".assets_notes, " + alias + ".notes, " + alias + ".created_by, " + alias + ".updated_by, " + alias + ".created_at, " + alias + ".updated_at";
             case "teams" -> alias + ".id, " + alias + ".organization_id, " + alias + ".organization_uuid, " + alias + ".department_id, " + alias + ".department_uuid, " + alias + ".department_name, " + alias + ".code, " + alias + ".name, " + alias + ".slug, " + alias + ".leader_id, " + alias + ".leader_name, " + alias + ".members_count, " + alias + ".description, " + alias + ".status, " + alias + ".created_at, " + alias + ".updated_at";
             case "master-data" -> alias + ".id, " + alias + ".category, " + alias + ".code, " + alias + ".name, " + alias + ".display_order, " + alias + ".is_active";
@@ -591,7 +644,7 @@ public class OperationsApplicationService {
             case "company" -> alias + ".id, " + alias + ".company_name, " + alias + ".international_name, " + alias + ".short_name, " + alias + ".tax_code, " + alias + ".established_date, " + alias + ".headquarters, " + alias + ".legal_representative, " + alias + ".representative_title, " + alias + ".phone, " + alias + ".email, " + alias + ".website, " + alias + ".bank_account, " + alias + ".bank_name, " + alias + ".business_license, " + alias + ".registered_capital, " + alias + ".total_employees, " + alias + ".branches, " + alias + ".created_at, " + alias + ".updated_at";
             case "training" -> alias + ".id, " + alias + ".organization_id, " + alias + ".course_code, " + alias + ".name, " + alias + ".category, " + alias + ".instructor, " + alias + ".start_date, " + alias + ".end_date, " + alias + ".location, " + alias + ".sessions_count, " + alias + ".attendees_count, " + alias + ".cost, " + alias + ".status, " + alias + ".notes, " + alias + ".created_by, " + alias + ".updated_by, " + alias + ".created_at, " + alias + ".updated_at";
             case "regulations" -> alias + ".id, " + alias + ".organization_id, " + alias + ".code, " + alias + ".title, " + alias + ".category, " + alias + ".description, " + alias + ".penalties, " + alias + ".effective_date, " + alias + ".status, " + alias + ".created_by, " + alias + ".updated_by, " + alias + ".created_at, " + alias + ".updated_at";
-            case "company-emails" -> alias + ".id, " + alias + ".organization_id, " + alias + ".email_address, " + alias + ".display_name, " + alias + ".assigned_employee_id, " + alias + ".department_id, " + alias + ".mailbox_type, " + alias + ".storage_quota_mb, " + alias + ".status, " + alias + ".aliases, " + alias + ".forward_to, " + alias + ".notes, " + alias + ".created_by, " + alias + ".updated_by, " + alias + ".created_at, " + alias + ".updated_at";
+            case "company-emails" -> alias + ".id, " + alias + ".organization_id, " + alias + ".email_address, " + alias + ".display_name, " + alias + ".assigned_employee_id, " + alias + ".department_id, d.name as department, e.code as employee_code, e.full_name as employee_name, " + alias + ".mailbox_type, " + alias + ".storage_quota_mb, " + alias + ".status, " + alias + ".aliases, " + alias + ".forward_to, " + alias + ".notes, " + alias + ".created_by, " + alias + ".updated_by, " + alias + ".created_at, " + alias + ".updated_at";
             case "reports" -> alias + ".id, " + alias + ".organization_id, " + alias + ".name, " + alias + ".category, " + alias + ".period, " + alias + ".start_date, " + alias + ".end_date, " + alias + ".department_id, " + alias + ".employee_filter, " + alias + ".notes, " + alias + ".created_by, " + alias + ".updated_by, " + alias + ".created_at, " + alias + ".updated_at";
             default -> throw unsupported(resource);
         };
@@ -608,7 +661,11 @@ public class OperationsApplicationService {
             case "teams" -> new Query("select " + projection("teams", "t") + " from public.enterprise_teams t where organization_uuid=? and id=?", List.of(organizationId, id));
             case "master-data" -> new Query("select " + projection("master-data", "m") + " from public.enterprise_master_catalogs m where id=?", List.of(id));
             case "branches" -> new Query("select " + projection("branches", "b") + " from public.organization_branches b where organization_id=? and id=?", List.of(organizationId, uuidId(id)));
-            case "training", "regulations", "company-emails", "reports" -> new Query("select " + projection(normalized, "r") + " from public." + ownedTable(normalized) + " r where organization_id=? and id=?", List.of(organizationId, uuidId(id)));
+            case "company-emails" -> new Query("select " + projection("company-emails", "m") + " from public.company_email_accounts m "
+                    + "left join public.employees e on e.id = m.assigned_employee_id and e.organization_id = m.organization_id "
+                    + "left join public.departments d on d.id = m.department_id and d.organization_id = m.organization_id "
+                    + "where m.organization_id=? and m.id=?", List.of(organizationId, uuidId(id)));
+            case "training", "regulations", "reports" -> new Query("select " + projection(normalized, "r") + " from public." + ownedTable(normalized) + " r where organization_id=? and id=?", List.of(organizationId, uuidId(id)));
             default -> throw unsupported(resource);
         };
         List<Map<String, Object>> rows = jdbc.queryForList(query.sql(), query.parameters().toArray());

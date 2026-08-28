@@ -34,48 +34,49 @@ public class ResourceController {
     PageResponse<JsonNode> list(@PathVariable UUID projectId, @PathVariable String resource,
                                 @RequestParam(defaultValue = "0") int page,
                                 @RequestParam(defaultValue = "100") int size,
-                                @RequestParam(defaultValue = "") String search) {
-        return resources.list(projectId, resource, page, size, search);
+                                @RequestParam(defaultValue = "") String search,
+                                @AuthenticationPrincipal Jwt jwt) {
+        return resources.list(projectId, resource, page, size, search, actor(jwt), root(jwt));
     }
 
     @GetMapping("/{resource}/{id}")
     ApiResponse<JsonNode> get(@PathVariable UUID projectId, @PathVariable String resource,
-                              @PathVariable String id) {
-        return ApiResponse.of(resources.get(projectId, resource, id));
+                              @PathVariable String id, @AuthenticationPrincipal Jwt jwt) {
+        return ApiResponse.of(resources.get(projectId, resource, id, actor(jwt), root(jwt)));
     }
 
     @PostMapping("/{resource}")
     @ResponseStatus(HttpStatus.CREATED)
     ApiResponse<JsonNode> create(@PathVariable UUID projectId, @PathVariable String resource,
                                  @RequestBody JsonNode body, @AuthenticationPrincipal Jwt jwt) {
-        return ApiResponse.of(resources.createMutable(projectId, resource, body, actor(jwt)));
+        return ApiResponse.of(resources.createMutable(projectId, resource, body, actor(jwt), root(jwt)));
     }
 
     @PutMapping("/{resource}/{id}")
     ApiResponse<JsonNode> put(@PathVariable UUID projectId, @PathVariable String resource,
                               @PathVariable String id, @RequestBody JsonNode body,
                               @AuthenticationPrincipal Jwt jwt) {
-        return ApiResponse.of(resources.put(projectId, resource, id, body, actor(jwt)));
+        return ApiResponse.of(resources.put(projectId, resource, id, body, actor(jwt), root(jwt)));
     }
 
     @PatchMapping("/{resource}/{id}")
     ApiResponse<JsonNode> patch(@PathVariable UUID projectId, @PathVariable String resource,
                                 @PathVariable String id, @RequestBody JsonNode body,
                                 @AuthenticationPrincipal Jwt jwt) {
-        return ApiResponse.of(resources.patch(projectId, resource, id, body, actor(jwt)));
+        return ApiResponse.of(resources.patch(projectId, resource, id, body, actor(jwt), root(jwt)));
     }
 
     @DeleteMapping("/{resource}/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void delete(@PathVariable UUID projectId, @PathVariable String resource, @PathVariable String id,
                 @AuthenticationPrincipal Jwt jwt) {
-        resources.delete(projectId, resource, id, actor(jwt));
+        resources.delete(projectId, resource, id, actor(jwt), root(jwt));
     }
 
     @PostMapping("/{resource}/reorder")
     ApiResponse<List<JsonNode>> reorder(@PathVariable UUID projectId, @PathVariable String resource,
                                         @RequestBody JsonNode body, @AuthenticationPrincipal Jwt jwt) {
-        return ApiResponse.of(resources.reorder(projectId, resource, body, actor(jwt)));
+        return ApiResponse.of(resources.reorder(projectId, resource, body, actor(jwt), root(jwt)));
     }
 
     @GetMapping("/{parentResource}/{parentId}/comments")
@@ -83,8 +84,10 @@ public class ResourceController {
                                           @PathVariable String parentResource,
                                           @PathVariable String parentId,
                                           @RequestParam(defaultValue = "0") int page,
-                                          @RequestParam(defaultValue = "100") int size) {
-        return resources.list(projectId, nestedResource(parentResource, parentId), page, size);
+                                          @RequestParam(defaultValue = "100") int size,
+                                          @AuthenticationPrincipal Jwt jwt) {
+        return resources.list(projectId, nestedResource(parentResource, parentId), page, size, "",
+                actor(jwt), root(jwt));
     }
 
     @PostMapping("/{parentResource}/{parentId}/comments")
@@ -97,15 +100,17 @@ public class ResourceController {
         body.put("parentResource", parentResource);
         body.put("parentId", parentId);
         return ApiResponse.of(resources.createMutable(projectId, nestedResource(parentResource, parentId), body,
-                actor(jwt)));
+                actor(jwt), root(jwt)));
     }
 
     @GetMapping("/{parentResource}/{parentId}/comments/{commentId}")
     ApiResponse<JsonNode> nestedComment(@PathVariable UUID projectId,
                                         @PathVariable String parentResource,
-                                        @PathVariable String parentId,
-                                        @PathVariable String commentId) {
-        return ApiResponse.of(resources.get(projectId, nestedResource(parentResource, parentId), commentId));
+                                              @PathVariable String parentId,
+                                              @PathVariable String commentId,
+                                              @AuthenticationPrincipal Jwt jwt) {
+        return ApiResponse.of(resources.get(projectId, nestedResource(parentResource, parentId), commentId,
+                actor(jwt), root(jwt)));
     }
 
     @PutMapping("/{parentResource}/{parentId}/comments/{commentId}")
@@ -116,7 +121,7 @@ public class ResourceController {
                                            @RequestBody JsonNode body,
                                            @AuthenticationPrincipal Jwt jwt) {
         return ApiResponse.of(resources.put(projectId, nestedResource(parentResource, parentId), commentId,
-                body, actor(jwt)));
+                body, actor(jwt), root(jwt)));
     }
 
     @PatchMapping("/{parentResource}/{parentId}/comments/{commentId}")
@@ -127,7 +132,7 @@ public class ResourceController {
                                              @RequestBody JsonNode body,
                                              @AuthenticationPrincipal Jwt jwt) {
         return ApiResponse.of(resources.patch(projectId, nestedResource(parentResource, parentId), commentId,
-                body, actor(jwt)));
+                body, actor(jwt), root(jwt)));
     }
 
     @DeleteMapping("/{parentResource}/{parentId}/comments/{commentId}")
@@ -136,7 +141,7 @@ public class ResourceController {
                              @PathVariable String parentResource,
                              @PathVariable String parentId,
                              @PathVariable String commentId, @AuthenticationPrincipal Jwt jwt) {
-        resources.delete(projectId, nestedResource(parentResource, parentId), commentId, actor(jwt));
+        resources.delete(projectId, nestedResource(parentResource, parentId), commentId, actor(jwt), root(jwt));
     }
 
     private String nestedResource(String parentResource, String parentId) {
@@ -145,5 +150,9 @@ public class ResourceController {
 
     private UUID actor(Jwt jwt) {
         return UUID.fromString(jwt.getClaimAsString("uid"));
+    }
+
+    private boolean root(Jwt jwt) {
+        return "ROOT_ADMIN".equals(jwt.getClaimAsString("role"));
     }
 }

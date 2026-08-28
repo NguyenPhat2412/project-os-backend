@@ -43,7 +43,9 @@ public class AuthController {
 
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
-    ApiResponse<AuthView> register(@Valid @RequestBody RegisterRequest request, HttpServletResponse response) {
+    ApiResponse<AuthView> register(@Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest,
+                                   HttpServletResponse response) {
+        rateLimit.checkRegister(request.email(), clientIp(httpRequest));
         return session(auth.register(request), response);
     }
 
@@ -57,7 +59,7 @@ public class AuthController {
     @PostMapping("/refresh")
     ApiResponse<AuthView> refresh(HttpServletRequest request, HttpServletResponse response) {
         String refreshToken = cookie(request, AuthCookieService.REFRESH_COOKIE);
-        rateLimit.checkRefresh(refreshToken, clientIp(request));
+        rateLimit.checkRefresh(clientIp(request));
         TokenService.RotatedSession rotated = tokens.rotate(refreshToken);
         cookies.write(response, rotated.tokens());
         return ApiResponse.of(new AuthView(AuthService.UserView.from(rotated.user()),
@@ -93,8 +95,8 @@ public class AuthController {
     }
 
     private String clientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Real-IP");
-        return forwarded == null || forwarded.isBlank() ? request.getRemoteAddr() : forwarded.trim();
+        String remoteAddress = request.getRemoteAddr();
+        return remoteAddress == null || remoteAddress.isBlank() ? "unknown" : remoteAddress;
     }
 
     public record RegisterRequest(@NotBlank @Email @Size(max = 254) String email,

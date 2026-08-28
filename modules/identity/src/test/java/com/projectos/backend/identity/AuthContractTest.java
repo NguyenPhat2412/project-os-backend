@@ -110,6 +110,33 @@ class AuthContractTest {
     }
 
     @Test
+    void loginReportsEmailAndPasswordFailuresThroughTheApiErrorContract() throws Exception {
+        String email = "login-errors-" + UUID.randomUUID() + "@example.test";
+        String password = "StrongPass123!";
+        mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + email + "\",\"password\":\"" + password
+                                + "\",\"displayName\":\"Login Errors\"}"))
+                .andExpect(status().isCreated());
+
+        mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + email + "\",\"password\":\"WrongPass123!\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.status").value(401))
+                .andExpect(jsonPath("$.error.code").value("invalid_credentials"))
+                .andExpect(jsonPath("$.error.name").value("Thông tin đăng nhập không đúng"))
+                .andExpect(jsonPath("$.error.message").value("Email hoặc mật khẩu không đúng."));
+
+        mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"missing-" + UUID.randomUUID() + "@example.test\","
+                                + "\"password\":\"WrongPass123!\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.status").value(401))
+                .andExpect(jsonPath("$.error.code").value("invalid_credentials"))
+                .andExpect(jsonPath("$.error.name").value("Thông tin đăng nhập không đúng"))
+                .andExpect(jsonPath("$.error.message").value("Email hoặc mật khẩu không đúng."));
+    }
+
+    @Test
     void googleLoginStartsAuthorizationCodeFlow() throws Exception {
         mvc.perform(get("/api/v1/oauth2/authorization/google"))
                 .andExpect(status().is3xxRedirection())
@@ -164,6 +191,33 @@ class AuthContractTest {
         mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"" + email + "\",\"password\":\"ChangedPass456!\"}"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void changingPasswordRevokesExistingRefreshSession() throws Exception {
+        String email = "revoke-session-" + UUID.randomUUID() + "@example.test";
+        String password = "StrongPass123!";
+        mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + email + "\",\"password\":\"" + password
+                                + "\",\"displayName\":\"Session User\"}"))
+                .andExpect(status().isCreated());
+        MvcResult login = mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"" + email + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isOk()).andReturn();
+        Cookie access = cookie(login.getResponse().getCookies(), "PROJECT_OS_ACCESS");
+        Cookie refresh = cookie(login.getResponse().getCookies(), "PROJECT_OS_REFRESH");
+        Cookie csrf = cookie(login.getResponse().getCookies(), "XSRF-TOKEN");
+
+        mvc.perform(post("/api/v1/users/me/password").cookie(access, csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"" + password
+                                + "\",\"newPassword\":\"ChangedPass456!\"}"))
+                .andExpect(status().isNoContent());
+
+        mvc.perform(post("/api/v1/auth/refresh").cookie(refresh, csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("invalid_refresh_token"));
     }
 
     @Test

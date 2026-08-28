@@ -24,21 +24,13 @@ import org.springframework.stereotype.Service;
 public final class EnvironmentConfigService {
     public static final String MASKED_VALUE = "••••••••";
 
-    private static final Set<String> ALLOWED_KEYS = Set.of(
-            "PROJECT_OS_API_PUBLIC_URL", "PROJECT_OS_API_INTERNAL_URL", "GATEWAY_PORT",
-            "CORS_ALLOWED_ORIGINS", "POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_DB",
-            "POSTGRES_USER", "POSTGRES_PASSWORD", "REDIS_HOST", "REDIS_PORT",
-            "NEXT_PUBLIC_WS_URL", "WS_PORT", "S3_BUCKET", "S3_REGION", "S3_ACCESS_KEY",
-            "S3_SECRET_KEY", "S3_ENDPOINT", "MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD",
-            "JWT_SECRET", "INTERNAL_SERVICE_TOKEN", "BOOTSTRAP_ADMIN_EMAIL",
-            "BOOTSTRAP_ADMIN_PASSWORD", "BOOTSTRAP_ADMIN_NAME", "ANTHROPIC_API_KEY",
-            "GEMINI_API_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
-            "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_OAUTH_SUCCESS_URL");
+    private static final Set<String> ALLOWED_KEYS = EnvironmentConfigCatalog.ALLOWED_KEYS;
 
-    private static final Set<String> SECRET_KEYS = Set.of(
-            "POSTGRES_PASSWORD", "S3_SECRET_KEY", "MINIO_ROOT_PASSWORD", "JWT_SECRET",
-            "INTERNAL_SERVICE_TOKEN", "BOOTSTRAP_ADMIN_PASSWORD", "ANTHROPIC_API_KEY",
-            "GEMINI_API_KEY", "GOOGLE_CLIENT_SECRET");
+    static boolean isAllowedKey(String key) {
+        return ALLOWED_KEYS.contains(key);
+    }
+
+    private static final Set<String> SECRET_KEYS = EnvironmentConfigCatalog.SECRET_KEYS;
 
     private final Path file;
     private final Map<String, String> source;
@@ -59,21 +51,61 @@ public final class EnvironmentConfigService {
 
     public Map<String, String> snapshot() {
         Map<String, String> result = new LinkedHashMap<>();
+        Map<String, String> current = currentValues();
         for (String key : ALLOWED_KEYS) {
-            String value = source.get(key);
+            String value = current.get(key);
             if (value == null || value.isBlank()) continue;
             result.put(key, SECRET_KEYS.contains(key) ? MASKED_VALUE : value);
         }
         return result;
     }
 
+    Map<String, String> currentValues() {
+        Map<String, String> values = new LinkedHashMap<>(source);
+        if (file == null || !Files.isRegularFile(file)) return values;
+        try {
+            for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+                String trimmed = line.trim();
+                if (trimmed.isBlank() || trimmed.startsWith("#") || !trimmed.contains("=")) continue;
+                int separator = trimmed.indexOf('=');
+                String key = trimmed.substring(0, separator).trim();
+                if (!ALLOWED_KEYS.contains(key)) continue;
+                String value = trimmed.substring(separator + 1).trim();
+                if (value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"")) {
+                    value = value.substring(1, value.length() - 1);
+                }
+                values.put(key, value);
+            }
+            return values;
+        } catch (IOException exception) {
+            return source;
+        }
+    }
+
     public boolean isFileConfigured() {
         return file != null;
     }
 
+    public String configuredFilePath() {
+        return file == null ? null : file.toAbsolutePath().toString();
+    }
+
+    public byte[] currentFileBytes() {
+        if (file == null || !Files.exists(file)) return new byte[0];
+        try {
+            return Files.readAllBytes(file);
+        } catch (IOException exception) {
+            throw new com.projectos.backend.platform.api.ApiException(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR,
+                    "environment_file_unreadable", "Không thể đọc cấu hình hệ thống.");
+        }
+    }
+
     public void update(Map<String, String> updates) {
-        if (file == null) throw new IllegalStateException("Environment file is not configured");
-        updates.keySet().forEach(this::requireAllowed);
+        if (file == null) {
+            throw new com.projectos.backend.platform.api.ApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                    "environment_file_not_configured", "Cấu hình hệ thống chưa sẵn sàng để cập nhật.");
+        }
+        Map<String, String> normalizedUpdates = EnvironmentConfigValidation.validate(updates);
 
         try {
             Path parent = file.toAbsolutePath().getParent();
@@ -82,7 +114,7 @@ public final class EnvironmentConfigService {
                     ? new ArrayList<>(Files.readAllLines(file, StandardCharsets.UTF_8))
                     : new ArrayList<>();
             Map<String, String> effectiveUpdates = new LinkedHashMap<>();
-            updates.forEach((key, value) -> {
+            normalizedUpdates.forEach((key, value) -> {
                 if (value != null && !value.isBlank() && !MASKED_VALUE.equals(value)) effectiveUpdates.put(key, value);
             });
             Set<String> writtenKeys = new java.util.HashSet<>();
@@ -114,10 +146,6 @@ public final class EnvironmentConfigService {
         } catch (IOException exception) {
             throw new IllegalStateException("Environment configuration could not be saved", exception);
         }
-    }
-
-    private void requireAllowed(String key) {
-        if (!ALLOWED_KEYS.contains(key)) throw new IllegalArgumentException("Environment key is not allowed");
     }
 
     private static Map<String, String> source(Environment environment) {

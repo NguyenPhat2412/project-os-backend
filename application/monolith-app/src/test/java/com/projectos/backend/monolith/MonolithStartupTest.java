@@ -45,6 +45,7 @@ class MonolithStartupTest {
         registry.add("app.storage.secret-key", () -> "test-secret-key");
         registry.add("app.storage.endpoint", () -> "http://localhost:19000");
         registry.add("app.cors.allowed-origins", () -> "http://localhost:3000");
+        registry.add("app.security.openapi-public", () -> "true");
         registry.add("spring.data.redis.repositories.enabled", () -> "false");
     }
 
@@ -58,13 +59,13 @@ class MonolithStartupTest {
     void startsAgainstCanonicalPublicSchema() {
         assertThat(jdbc.queryForObject(
                 "select count(*) from information_schema.tables where table_schema = 'public'",
-                Integer.class)).isEqualTo(49);
+                Integer.class)).isEqualTo(65);
         assertThat(jdbc.queryForObject(
                 "select count(*) from flyway_schema_history where success",
-                Integer.class)).isEqualTo(22);
+                Integer.class)).isEqualTo(34);
         assertThat(jdbc.queryForObject(
                 "select version from flyway_schema_history where success order by installed_rank desc limit 1",
-                String.class)).isEqualTo("22");
+                String.class)).isEqualTo("34");
         assertThat(jdbc.queryForObject(
                 "select count(*) from information_schema.tables "
                         + "where table_schema = 'public' and table_name = 'organization_permissions'",
@@ -72,8 +73,9 @@ class MonolithStartupTest {
         assertThat(jdbc.queryForObject(
                 "select count(*) from information_schema.tables where table_schema = 'public' "
                         + "and table_name in ('organization_positions', 'training_courses', "
-                        + "'company_regulations', 'company_email_accounts', 'report_definitions', 'organization_branches')",
-                Integer.class)).isEqualTo(6);
+                        + "'company_regulations', 'company_email_accounts', 'report_definitions', 'organization_branches', "
+                        + "'notification_categories')",
+                Integer.class)).isEqualTo(7);
         assertThat(jdbc.queryForObject(
                 "select count(*) from information_schema.columns where table_schema = 'public' "
                         + "and table_name = 'employees' and column_name in ('code', 'phone', 'notes')",
@@ -82,6 +84,17 @@ class MonolithStartupTest {
                 "select count(*) from information_schema.tables where table_schema = 'public' "
                         + "and table_name = 'organization_settings'",
                 Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void swaggerDocumentsPublicMonolithApiWithoutInternalRoutes() throws Exception {
+        mvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.openapi").isString())
+                .andExpect(jsonPath("$.info.title").value("Project OS API"))
+                .andExpect(jsonPath("$.paths['/api/v1/auth/login']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/organizations/{organizationId}/ai/models']").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/internal/activities']").doesNotExist());
     }
 
     @Test
@@ -197,7 +210,7 @@ class MonolithStartupTest {
         assertThat(jdbc.queryForObject(
                 "select count(*) from pg_constraint c join pg_namespace n on n.oid = c.connamespace "
                         + "where n.nspname = 'public' and c.contype = 'f' and c.convalidated",
-                Integer.class)).isEqualTo(80);
+                Integer.class)).isEqualTo(114);
         assertThat(jdbc.queryForObject(
                 "select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid "
                         + "join pg_namespace n on n.oid = c.relnamespace "
@@ -210,6 +223,32 @@ class MonolithStartupTest {
                         + "'projects_organization_required_ck', 'outbox_events_attempts_nonnegative_ck') "
                         + "and convalidated",
                 Integer.class)).isEqualTo(4);
+    }
+
+    @Test
+    void foreignKeyColumnsAreIndexedForStableJoins() {
+        assertThat(jdbc.queryForObject("""
+                with foreign_keys as (
+                    select c.conrelid, c.conkey
+                    from pg_constraint c
+                    join pg_namespace n on n.oid = c.connamespace
+                    where n.nspname = 'public' and c.contype = 'f'
+                )
+                select count(*)
+                from foreign_keys f
+                where not exists (
+                    select 1
+                    from pg_index i
+                    where i.indrelid = f.conrelid
+                      and i.indisvalid
+                      and i.indisready
+                      and (
+                          select array_agg(attnum order by ord)
+                          from unnest(i.indkey::int2[]) with ordinality as indexed_columns(attnum, ord)
+                          where ord <= cardinality(f.conkey)
+                      ) = f.conkey
+                )
+                """, Integer.class)).isZero();
     }
 
     @Test
@@ -248,13 +287,54 @@ class MonolithStartupTest {
                 where table_schema = 'public'
                   and (
                     (table_name = 'enterprise_contracts' and column_name = 'employee_uuid')
+                    or (table_name = 'enterprise_contracts' and column_name = 'organization_uuid')
                     or (table_name = 'enterprise_kpi_evaluations' and column_name = 'employee_uuid')
+                    or (table_name = 'enterprise_kpi_evaluations' and column_name = 'organization_uuid')
+                    or (table_name = 'enterprise_leave_balances' and column_name = 'employee_uuid')
+                    or (table_name = 'enterprise_leave_balances' and column_name = 'organization_uuid')
                     or (table_name = 'enterprise_teams' and column_name = 'organization_uuid')
                     or (table_name = 'enterprise_teams' and column_name = 'department_uuid')
                   )
                 """, Integer.class);
-        assertThat(normalizedColumns).isEqualTo(4);
-        assertThat(jdbc.queryForObject("select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'enterprise_leave_balances' and column_name = 'employee_uuid'", Integer.class)).isEqualTo(1);
+        assertThat(normalizedColumns).isEqualTo(8);
+    }
+
+    @Test
+    void legacyEmployeeReferencesAreTenantSafe() {
+        assertThat(jdbc.queryForObject("""
+                select count(*)
+                from pg_constraint
+                where conname in (
+                    'enterprise_contracts_employee_org_fk',
+                    'enterprise_kpi_evaluations_employee_org_fk',
+                    'enterprise_leave_balances_employee_org_fk'
+                ) and convalidated
+                """, Integer.class)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("""
+                select count(*)
+                from information_schema.columns
+                where table_schema = 'public'
+                  and table_name in ('enterprise_contracts', 'enterprise_kpi_evaluations', 'enterprise_leave_balances')
+                  and column_name = 'organization_uuid'
+                """, Integer.class)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("""
+                select count(*)
+                from enterprise_contracts c
+                join employees e on e.id = c.employee_uuid
+                where c.organization_uuid is distinct from e.organization_id
+                """, Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("""
+                select count(*)
+                from enterprise_kpi_evaluations k
+                join employees e on e.id = k.employee_uuid
+                where k.organization_uuid is distinct from e.organization_id
+                """, Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("""
+                select count(*)
+                from enterprise_leave_balances b
+                join employees e on e.id = b.employee_uuid
+                where b.organization_uuid is distinct from e.organization_id
+                """, Integer.class)).isZero();
     }
 
     @Test
@@ -354,6 +434,45 @@ class MonolithStartupTest {
         mvc.perform(post(base + "/reports").with(root).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Security Report\",\"category\":\"Báo cáo nhân sự\",\"period\":\"Tùy chọn\"}"))
                 .andExpect(status().isCreated());
+    }
+
+    @Test
+    void companyEmailAccountReturnsAssignedEmployeeIdentityFromDirectory() throws Exception {
+        UUID rootId = UUID.randomUUID();
+        UUID employeeId = UUID.randomUUID();
+        jdbc.update("insert into public.users (id, display_name, email, role, status) values (?, ?, ?, ?, ?)",
+                rootId, "Email Contract Root", rootId + "@test.invalid", "ROOT_ADMIN", "ACTIVE");
+        var root = SecurityMockMvcRequestPostProcessors.jwt()
+                .jwt(token -> token.claim("uid", rootId.toString()).claim("role", "ROOT_ADMIN"));
+        String organizationId = mvc.perform(post("/api/v1/organizations").with(root)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Email Contract Org\",\"slug\":\"email-contract-org\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString()
+                .replaceAll(".*\\\"id\\\":\\\"([^\\\"]+).*", "$1");
+
+        String employeeCode = "EMP-EMAIL-01";
+        jdbc.update("insert into public.employees (id, organization_id, code, full_name, email, status) values (?, ?::uuid, ?, ?, ?, 'ACTIVE')",
+                employeeId, organizationId, employeeCode, "Email Employee", "email.employee@test.invalid");
+
+        String base = "/api/v1/organizations/" + organizationId;
+        String mailboxId = mvc.perform(post(base + "/company-emails").with(root)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"emailAddress\":\"employee@example.test\",\"displayName\":\"Email Employee\","
+                                + "\"assignedEmployeeId\":\"" + employeeId + "\",\"mailboxType\":\"PERSONAL\","
+                                + "\"status\":\"ACTIVE\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.assignedEmployeeId").value(employeeId.toString()))
+                .andExpect(jsonPath("$.data.employeeCode").value(employeeCode))
+                .andExpect(jsonPath("$.data.employeeName").value("Email Employee"))
+                .andReturn().getResponse().getContentAsString()
+                .replaceAll(".*\\\"id\\\":\\\"([^\\\"]+).*", "$1");
+
+        mvc.perform(get(base + "/company-emails").with(root))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].employeeCode").value(employeeCode))
+                .andExpect(jsonPath("$.data[0].employeeName").value("Email Employee"));
+        mvc.perform(delete(base + "/company-emails/" + mailboxId).with(root))
+                .andExpect(status().isNoContent());
     }
 
     @Test

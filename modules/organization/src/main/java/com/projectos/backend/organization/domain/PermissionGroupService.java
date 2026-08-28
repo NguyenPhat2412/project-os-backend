@@ -20,7 +20,7 @@ import com.projectos.backend.platform.api.ApiException;
 public class PermissionGroupService {
     public static final Set<String> AVAILABLE_MODULES = Set.of("dashboard", "projects", "tasks", "daily-reports",
             "attendance", "company-rules", "organization", "employees", "project-management", "operations", "knowledge",
-            "meetings", "activity", "reports", "admin", "profile");
+            "meetings", "activity", "reports", "admin", "profile", "ai");
 
     private final PermissionGroupRepository groups;
     private final PermissionGroupMemberRepository groupMembers;

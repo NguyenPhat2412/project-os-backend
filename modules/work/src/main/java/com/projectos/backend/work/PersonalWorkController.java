@@ -69,7 +69,7 @@ class PersonalWorkController {
         if (!ownedBy(record, actor)) throw forbidden();
         ObjectNode patch = ((ObjectNode) record.getPayload()).objectNode();
         patch.put("status", request.status().trim().toLowerCase());
-        return ApiResponse.of(resources.patch(projectId, "tasks", taskId, patch, actor));
+        return ApiResponse.of(resources.patch(projectId, "tasks", taskId, patch, actor, false));
     }
 
     @GetMapping("/api/v1/me/daily-reports")
@@ -112,7 +112,7 @@ class PersonalWorkController {
             body.put("recipientName", recipient.fullName());
             if (recipient.title() != null) body.put("recipientTitle", recipient.title());
         }
-        return ApiResponse.of(resources.create(request.projectId(), "daily-reports", body, actor));
+        return ApiResponse.of(resources.create(request.projectId(), "daily-reports", body, actor, root(jwt)));
     }
 
     @GetMapping("/api/v1/manager/team/tasks")
@@ -139,7 +139,7 @@ class PersonalWorkController {
         }
         ObjectNode payload = body.deepCopy();
         payload.remove("organizationId");
-        return ApiResponse.of(resources.create(projectId, "tasks", payload, actor));
+        return ApiResponse.of(resources.create(projectId, "tasks", payload, actor, root(jwt)));
     }
 
     @GetMapping("/api/v1/manager/daily-reports")

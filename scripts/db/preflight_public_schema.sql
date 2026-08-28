@@ -40,6 +40,29 @@ from pg_constraint
 where contype = 'f' and not convalidated
 order by conrelid::regclass::text, conname;
 
+\echo '== Foreign keys without child-side indexes =='
+with foreign_keys as (
+    select c.conrelid, c.conkey, c.conname
+    from pg_constraint c
+    join pg_namespace n on n.oid = c.connamespace
+    where n.nspname = 'public' and c.contype = 'f'
+)
+select f.conrelid::regclass as table_name, f.conname
+from foreign_keys f
+where not exists (
+    select 1
+    from pg_index i
+    where i.indrelid = f.conrelid
+      and i.indisvalid
+      and i.indisready
+      and (
+          select array_agg(attnum order by ord)
+          from unnest(i.indkey::int2[]) with ordinality as indexed_columns(attnum, ord)
+          where ord <= cardinality(f.conkey)
+      ) = f.conkey
+)
+order by f.conrelid::regclass::text, f.conname;
+
 \echo '== Duplicate foreign keys with identical key pairs =='
 select conrelid::regclass as table_name,
        confrelid::regclass as referenced_table,
@@ -94,7 +117,31 @@ union all select 'enterprise_teams.department_uuid', count(*)
 from enterprise_teams t
 join departments d on d.id = t.department_uuid
 where t.organization_uuid is not null and d.organization_id <> t.organization_uuid
+union all select 'enterprise_contracts.employee_uuid', count(*)
+from enterprise_contracts c
+join employees e on e.id = c.employee_uuid
+where c.organization_uuid <> e.organization_id
+union all select 'enterprise_kpi_evaluations.employee_uuid', count(*)
+from enterprise_kpi_evaluations k
+join employees e on e.id = k.employee_uuid
+where k.organization_uuid <> e.organization_id
+union all select 'enterprise_leave_balances.employee_uuid', count(*)
+from enterprise_leave_balances b
+join employees e on e.id = b.employee_uuid
+where b.organization_uuid <> e.organization_id
 order by relation;
+
+\echo '== Enterprise relationship map =='
+select conrelid::regclass as child_table,
+       confrelid::regclass as parent_table,
+       conname,
+       pg_get_constraintdef(oid) as relationship
+from pg_constraint
+where contype = 'f'
+  and connamespace = 'public'::regnamespace
+  and (conrelid::regclass::text like 'enterprise_%'
+       or confrelid::regclass::text like 'enterprise_%')
+order by 1, 2, 3;
 
 \echo '== Unresolved legacy references =='
 select 'enterprise_contracts.employee_id' as relation, count(*) as unresolved_rows

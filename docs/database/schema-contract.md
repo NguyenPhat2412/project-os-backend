@@ -1,21 +1,22 @@
 # Project OS PostgreSQL schema contract
 
-Status: current canonical contract, 2026-08-25.
+Status: current canonical contract, 2026-08-27.
 
 ## Source of truth
 
 - Database: PostgreSQL database `project_os`.
 - Schema: `public`.
 - Migration owner: `application/monolith-app/src/main/resources/db/migration/monolith/`.
-- Current canonical Flyway version: V22.
+- Current canonical Flyway version: V29.
 - Hibernate mode: `ddl-auto=validate`; Hibernate must not create or alter tables.
 
 ## Release gate
 
-A fresh PostgreSQL Testcontainer must complete Flyway V1–V22 and satisfy the
-monolith schema assertions: 49 public business tables, 80 validated foreign
-keys, exactly one primary key per business table, no failed migration history,
-and no orphan or tenant-mismatch records in the checked relationships.
+A fresh PostgreSQL Testcontainer must complete Flyway V1–V29 and satisfy the
+monolith schema assertions: 58 public tables (57 business tables plus
+`flyway_schema_history`), 102 validated foreign keys, exactly one primary key
+per public table, indexed child-side foreign-key columns, no failed migration
+history, and no orphan or tenant-mismatch records in the checked relationships.
 
 These counts are verification gates for the current migration set, not a
 permission to modify an existing production database without backup, restore
@@ -31,6 +32,23 @@ rehearsal and preflight evidence.
   values are never blindly cast to UUID.
 - Historical attendance, leave, compensation and audit data is retained by
   deactivation or status transition, not destructive cascade behavior.
+
+## Relationship coverage
+
+- Canonical domain tables use UUID foreign keys and composite `(id,
+  organization_id)` keys where tenant scope is part of the relationship.
+- Legacy `enterprise_contracts`, `enterprise_kpi_evaluations` and
+  `enterprise_leave_balances` use validated `(employee_uuid,
+  organization_uuid)` foreign keys to `employees`.
+- `enterprise_teams` uses validated organization and department UUID links,
+  including the department tenant boundary.
+- The remaining legacy `enterprise_*` snapshot tables intentionally have no
+  guessed foreign keys because their owner columns and tenant semantics have
+  not been verified. They remain compatibility tables until an explicit
+  mapping/owner migration is approved.
+- V28–V29 index every child-side foreign-key column set, including composite
+  keys in FK column order, to keep relationship checks, joins and parent-row
+  operations predictable at scale.
 
 ## Database roles
 

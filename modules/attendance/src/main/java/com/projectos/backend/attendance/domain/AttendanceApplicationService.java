@@ -388,7 +388,14 @@ public class AttendanceApplicationService {
     }
 
     private AttendanceController.RecordView recordView(UUID org, AttendanceRecord value) {
-        return AttendanceController.RecordView.from(value, organization.employee(org, value.getEmployeeId()).code());
+        String employeeCode = null;
+        try {
+            employeeCode = organization.employee(org, value.getEmployeeId()).code();
+        } catch (ApiException exception) {
+            if (exception.status() != HttpStatus.NOT_FOUND)
+                throw exception;
+        }
+        return AttendanceController.RecordView.from(value, employeeCode);
     }
 
     private String normalizeMode(String mode) {
@@ -469,9 +476,9 @@ public class AttendanceApplicationService {
     }
 
     private UUID attendanceTarget(UUID org, UUID requested, UUID actor, boolean root, OrgContext context) {
-        if (root) {
+        if (root || context.admin()) {
             if (requested == null)
-                throw bad("employee_required", "Select an employee to view attendance");
+                return null;
             organization.employee(org, requested);
             return requested;
         }

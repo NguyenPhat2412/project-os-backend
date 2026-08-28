@@ -10,6 +10,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.projectos.backend.platform.api.ApiException;
+import com.projectos.backend.identity.auth.TokenService;
 
 @Service
 class UserProfileService {
@@ -19,13 +20,15 @@ class UserProfileService {
     private final UserProfileRepository profiles;
     private final PasswordEncoder passwords;
     private final ObjectMapper mapper;
+    private final TokenService tokens;
 
     UserProfileService(UserAccountRepository users, UserProfileRepository profiles,
-                       PasswordEncoder passwords, ObjectMapper mapper) {
+                       PasswordEncoder passwords, ObjectMapper mapper, TokenService tokens) {
         this.users = users;
         this.profiles = profiles;
         this.passwords = passwords;
         this.mapper = mapper;
+        this.tokens = tokens;
     }
 
     @Transactional(readOnly = true)
@@ -106,12 +109,14 @@ class UserProfileService {
             throw new ApiException(HttpStatus.CONFLICT, "password_unchanged", "New password must be different");
         }
         user.changePassword(passwords.encode(newPassword));
+        tokens.revokeAll(userId);
     }
 
     @Transactional
     void deleteAccount(UUID userId, String currentPassword) {
         UserAccount user = user(userId);
         requirePassword(user, currentPassword);
+        tokens.revokeAll(userId);
         users.delete(user);
     }
 

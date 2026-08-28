@@ -123,6 +123,7 @@ public class MonolithSecurityConfig {
                             "/api/v1/auth/refresh",
                             "/api/v1/auth/logout",
                             "/api/v1/auth/providers",
+                            "/api/v1/public/onboarding",
                             "/actuator/health",
                             "/actuator/health/**"
                     ).permitAll();

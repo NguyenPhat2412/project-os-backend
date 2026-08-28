@@ -35,4 +35,7 @@ public class OrganizationSettings {
             return null;
         }
     }
+
+    public UUID getUpdatedBy() { return updatedBy; }
+    public Instant getUpdatedAt() { return updatedAt; }
 }

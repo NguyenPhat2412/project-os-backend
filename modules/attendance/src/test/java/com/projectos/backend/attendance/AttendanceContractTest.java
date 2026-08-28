@@ -203,6 +203,21 @@ class AttendanceContractTest {
         }
 
         @Test
+        void organizationAdminCanReadCompanyRecordsWithoutSelectingEmployee() throws Exception {
+                UUID organizationId = UUID.randomUUID(), adminUserId = UUID.randomUUID();
+                when(organization.timezone(organizationId)).thenReturn("Asia/Ho_Chi_Minh");
+                when(organization.access(organizationId, adminUserId))
+                                .thenReturn(new OrganizationDirectory.Access("Asia/Ho_Chi_Minh", "OWNER"));
+                var actor = jwt().jwt(token -> token.claim("uid", adminUserId.toString()).claim("role", "USER"));
+                String base = "/api/v1/organizations/" + organizationId + "/attendance";
+
+                mvc.perform(get(base + "/records").with(actor))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.meta.total").value(0))
+                                .andExpect(jsonPath("$.data").isArray());
+        }
+
+        @Test
         void employeeOnlySeesSelfWhileManagerCanViewDirectReport() throws Exception {
                 UUID organizationId = UUID.randomUUID(), managerUserId = UUID.randomUUID(),
                                 managerEmployeeId = UUID.randomUUID(), reportEmployeeId = UUID.randomUUID(),

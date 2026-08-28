@@ -17,6 +17,10 @@ public interface OrganizationDirectory {
         return new AttendancePolicy(false, 0, 0, 0, "");
     }
 
+    default AiConfiguration aiConfiguration(UUID organizationId) {
+        return new AiConfiguration(Set.of(), "");
+    }
+
     default Set<EmployeeDetails> directReports(UUID organizationId, UUID supervisorId) {
         return Set.of();
     }

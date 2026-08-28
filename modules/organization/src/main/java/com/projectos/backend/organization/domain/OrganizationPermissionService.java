@@ -11,19 +11,25 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.projectos.backend.platform.api.ApiException;
+import com.projectos.backend.platform.organization.OrganizationPermissionPort;
 
 @Service
-public class OrganizationPermissionService {
+public class OrganizationPermissionService implements OrganizationPermissionPort {
     private static final Set<String> ROLES = Set.of("SUPER_ADMIN", "HR_MANAGER", "DEPT_LEAD", "EMPLOYEE", "INTERN");
     private final OrganizationPermissionRepository permissions;
     private final OrganizationMembershipRepository memberships;
     private final WorkspaceCache cache;
+    private final OrganizationAuditService audit;
+    private final PermissionGroupService permissionGroups;
 
     OrganizationPermissionService(OrganizationPermissionRepository permissions,
-                                   OrganizationMembershipRepository memberships, WorkspaceCache cache) {
+                                   OrganizationMembershipRepository memberships, WorkspaceCache cache,
+                                   OrganizationAuditService audit, PermissionGroupService permissionGroups) {
         this.permissions = permissions;
         this.memberships = memberships;
         this.cache = cache;
+        this.audit = audit;
+        this.permissionGroups = permissionGroups;
     }
 
     @Transactional(readOnly = true)
@@ -61,6 +67,8 @@ public class OrganizationPermissionService {
         // is not evaluated against the old row in the same transaction.
         permissions.flush();
         permissions.saveAll(next);
+        audit.record(organizationId, actorId, "organization_permissions_replaced", "organization_permissions", null,
+                null, normalized, null);
         cache.invalidateOrganization(organizationId);
         return list(organizationId, actorId, root);
     }
@@ -98,6 +106,7 @@ public class OrganizationPermissionService {
     }
 
     @Transactional(readOnly = true)
+    @Override
     public void requirePermission(UUID organizationId, UUID actorId, boolean root, String permissionKey) {
         if (root) return;
         OrganizationMembership membership = memberships.findByOrganizationIdAndUserId(organizationId, actorId)
@@ -114,11 +123,36 @@ public class OrganizationPermissionService {
         boolean allowed = configured.stream().anyMatch(value -> permissionKey.equals(value.getPermissionKey())
                 && roleKey.equals(value.getRoleKey()));
         if (!hasExplicitRule) {
+            boolean aiGroupDenied = !root
+                    && permissionGroups.assignedModules(organizationId, actorId)
+                    .map(modules -> !modules.contains("ai"))
+                    .orElse(false)
+                    && (permissionKey.equals("page:ai") || permissionKey.startsWith("component:ai:"));
+            if (aiGroupDenied) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "feature_permission_denied",
+                        "Bạn không có quyền thực hiện thao tác này.");
+            }
             allowed = switch (permissionKey) {
                 case "page:kpi-thi-dua" -> roleKey.equals("SUPER_ADMIN") || roleKey.equals("HR_MANAGER")
                         || roleKey.equals("DEPT_LEAD") || roleKey.equals("EMPLOYEE");
                 case "module:kpi-thi-dua.rules" -> roleKey.equals("SUPER_ADMIN") || roleKey.equals("HR_MANAGER");
                 case "module:kpi-thi-dua.points" -> roleKey.equals("SUPER_ADMIN") || roleKey.equals("HR_MANAGER");
+                case "EMAIL_TEMPLATE_READ", "EMAIL_CAMPAIGN_READ" -> roleKey.equals("SUPER_ADMIN")
+                        || roleKey.equals("HR_MANAGER") || roleKey.equals("DEPT_LEAD")
+                        || roleKey.equals("EMPLOYEE");
+                case "EMAIL_TEMPLATE_MANAGE", "EMAIL_CAMPAIGN_CREATE", "EMAIL_CAMPAIGN_QUEUE",
+                        "EMAIL_CAMPAIGN_CANCEL", "EMAIL_CAMPAIGN_RETRY" -> roleKey.equals("SUPER_ADMIN")
+                        || roleKey.equals("HR_MANAGER");
+                case "EMAIL_CAMPAIGN_PREVIEW" -> roleKey.equals("SUPER_ADMIN")
+                        || roleKey.equals("HR_MANAGER") || roleKey.equals("DEPT_LEAD");
+                case "page:ai", "component:ai:website-guide", "component:ai:self-read",
+                        "component:ai:attendance-self-read", "component:ai:project-read",
+                        "component:ai:knowledge-read" -> true;
+                case "component:ai:organization-read", "component:ai:employee-read",
+                        "component:ai:attendance-team-read", "component:ai:report-read" ->
+                        roleKey.equals("SUPER_ADMIN") || roleKey.equals("HR_MANAGER") || roleKey.equals("DEPT_LEAD");
+                case "component:ai:model-read" -> roleKey.equals("SUPER_ADMIN") || roleKey.equals("HR_MANAGER");
+                case "component:ai:provider-test" -> roleKey.equals("SUPER_ADMIN");
                 default -> false;
             };
         }
@@ -129,6 +163,13 @@ public class OrganizationPermissionService {
 
     public void requireOrganizationAdmin(UUID organizationId, UUID actorId, boolean root) {
         requireAdmin(organizationId, actorId, root);
+    }
+
+    public void requireOrganizationMember(UUID organizationId, UUID actorId, boolean root) {
+        if (root) return;
+        memberships.findByOrganizationIdAndUserId(organizationId, actorId)
+                .filter(value -> value.getStatus() == OrganizationMembership.Status.ACTIVE)
+                .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "organization_access_denied", "Bạn không có quyền truy cập doanh nghiệp này."));
     }
 
     private String cleanKey(String value) {

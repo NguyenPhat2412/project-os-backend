@@ -1,6 +1,7 @@
 package com.projectos.backend.organization.domain;
 
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -35,4 +36,27 @@ interface OrganizationSettingsRepository extends JpaRepository<OrganizationSetti
 interface OrganizationMembershipRepository extends JpaRepository<OrganizationMembership, UUID> {
     Optional<OrganizationMembership> findByOrganizationIdAndUserId(UUID organizationId, UUID userId);
     Page<OrganizationMembership> findByOrganizationId(UUID organizationId, Pageable pageable);
+}
+interface CompanyAssetRepository extends JpaRepository<CompanyAsset, UUID> {
+    Page<CompanyAsset> findByOrganizationIdAndDeletedFalse(UUID organizationId, Pageable pageable);
+    Optional<CompanyAsset> findByOrganizationIdAndIdAndDeletedFalse(UUID organizationId, UUID id);
+    boolean existsByOrganizationIdAndCodeIgnoreCaseAndDeletedFalse(UUID organizationId, String code);
+}
+interface CompanyResourceRepository extends JpaRepository<CompanyResource, UUID> {
+    Page<CompanyResource> findByOrganizationId(UUID organizationId, Pageable pageable);
+    Optional<CompanyResource> findByOrganizationIdAndId(UUID organizationId, UUID id);
+    boolean existsByOrganizationIdAndCodeIgnoreCase(UUID organizationId, String code);
+}
+interface AssetHandoverOrderRepository extends JpaRepository<AssetHandoverOrder, UUID> {
+    Optional<AssetHandoverOrder> findByOrganizationIdAndId(UUID organizationId, UUID id);
+    List<AssetHandoverOrder> findByOrganizationIdOrderByCreatedAtDesc(UUID organizationId);
+}
+interface AssetHandoverItemRepository extends JpaRepository<AssetHandoverItem, UUID> {
+    List<AssetHandoverItem> findByHandoverId(UUID handoverId);
+    List<AssetHandoverItem> findByAssetIdOrderByIssuedAtDesc(UUID assetId);
+}
+interface AssetAssignmentRepository extends JpaRepository<AssetAssignment, UUID> {
+    Optional<AssetAssignment> findByAssetIdAndStatus(UUID assetId, AssetAssignment.Status status);
+    List<AssetAssignment> findByOrganizationIdAndEmployeeIdAndStatus(UUID organizationId, UUID employeeId, AssetAssignment.Status status);
+    List<AssetAssignment> findByOrganizationIdAndAssetId(UUID organizationId, UUID assetId);
 }

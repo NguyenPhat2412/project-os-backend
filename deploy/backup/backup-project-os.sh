@@ -31,7 +31,7 @@ PGPASSWORD="$DB_PASSWORD" pg_dump \
   --no-owner \
   --file="$DEST/postgres-public.dump"
 
-sha256sum "$DEST/postgres-public.dump" > "$DEST/SHA256SUMS"
+(cd "$DEST" && sha256sum postgres-public.dump > SHA256SUMS)
 printf 'created_at=%s\ndatabase_schema=public\nrpo_target=24h\n' \
   "$STAMP" > "$DEST/metadata.txt"
 

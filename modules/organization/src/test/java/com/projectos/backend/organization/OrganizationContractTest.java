@@ -18,6 +18,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -36,6 +37,7 @@ class OrganizationContractTest {
         registry.add("app.workspace-cache.enabled", () -> "false");
     }
     @Autowired MockMvc mvc;
+    @Autowired JdbcTemplate jdbc;
 
     @Test
     void ownerCanManageDepartmentEmployeeAndMembership() throws Exception {
@@ -79,6 +81,70 @@ class OrganizationContractTest {
     }
 
     @Test
+    void settingsReadModelFillsMissingGroupsFromOrganizationDefaults() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        var owner = jwt().jwt(token -> token.claim("uid", ownerId.toString()).claim("role", "USER"));
+        UUID organizationId = UUID.fromString(organizationFor(ownerId, "Sparse Settings Org", "sparse-settings-org"));
+
+        jdbc.update("insert into organization.organization_settings (organization_id, settings, updated_by, updated_at) values (?, cast(? as jsonb), ?, now())",
+                organizationId, "{\"general\":{\"companyName\":\"Saved Name\"}}", ownerId);
+
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/settings").with(owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.general.companyName").value("Saved Name"))
+                .andExpect(jsonPath("$.data.general.timezone").value("Asia/Ho_Chi_Minh"))
+                .andExpect(jsonPath("$.data.project.bugSlaHours.p0Critical").value(4))
+                .andExpect(jsonPath("$.data.hr.organizationId").value(organizationId.toString()))
+                .andExpect(jsonPath("$.data.notifications.smtpEncryption").value("TLS"))
+                .andExpect(jsonPath("$.data.security.sessionTimeoutMinutes").value(480));
+    }
+
+    @Test
+    void notificationCategoriesAreOrganizationScopedAndAdminManaged() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        var owner = jwt().jwt(token -> token.claim("uid", ownerId.toString()).claim("role", "USER"));
+        String organizationId = organizationFor(ownerId, "Notification Category Org", "notification-category-org");
+
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/notification-categories").with(owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data.length()").value(0));
+
+        String categoryId = value(post("/api/v1/organizations/" + organizationId + "/notification-categories"), owner,
+                "{\"code\":\"team-update\",\"name\":\"Cập nhật nội bộ\"}", "id");
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/notification-categories").with(owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].code").value("team-update"))
+                .andExpect(jsonPath("$.data[0].name").value("Cập nhật nội bộ"))
+                .andExpect(jsonPath("$.data[0].isActive").value(true));
+
+        mvc.perform(patch("/api/v1/organizations/" + organizationId + "/notification-categories/" + categoryId).with(owner)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Thông tin nội bộ\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("Thông tin nội bộ"));
+
+        mvc.perform(delete("/api/v1/organizations/" + organizationId + "/notification-categories/" + categoryId).with(owner))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/notification-categories").with(owner))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(0));
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/notification-categories?includeInactive=true").with(owner))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].isActive").value(false));
+
+        value(put("/api/v1/organizations/" + organizationId + "/members"), owner,
+                "{\"userId\":\"" + memberId + "\",\"role\":\"MEMBER\"}", "id");
+        var member = jwt().jwt(token -> token.claim("uid", memberId.toString()).claim("role", "USER"));
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/notification-categories").with(member))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/organizations/" + organizationId + "/notification-categories").with(member)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"blocked\",\"name\":\"Không được tạo\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("organization_admin_required"));
+    }
+
+    @Test
     void membershipSynchronizesEmployeeProfile() throws Exception {
         UUID ownerId = UUID.randomUUID();
         UUID memberId = UUID.randomUUID();
@@ -108,6 +174,24 @@ class OrganizationContractTest {
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("employee_email_already_linked"));
         mvc.perform(get("/api/v1/organizations/" + organizationId + "/members").with(owner))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.meta.total").value(3));
+    }
+
+    @Test
+    void deletingEmployeeKeepsDatabaseRowButHidesItFromCurrentDirectory() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        var owner = jwt().jwt(token -> token.claim("uid", ownerId.toString()).claim("role", "USER"));
+        String organizationId = organizationFor(ownerId, "Soft Delete Org", "soft-delete-org");
+        String employeeId = value(post("/api/v1/organizations/" + organizationId + "/employees"), owner,
+                "{\"fullName\":\"Archived Employee\",\"email\":\"archived@example.com\"}", "id");
+
+        mvc.perform(delete("/api/v1/organizations/" + organizationId + "/employees/" + employeeId).with(owner))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/employees").with(owner))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.meta.total").value(0));
+
+        Integer deleted = jdbc.queryForObject("select count(*) from organization.employees where id = ? and is_deleted = true",
+                Integer.class, UUID.fromString(employeeId));
+        org.junit.jupiter.api.Assertions.assertEquals(1, deleted);
     }
 
     @Test
@@ -333,6 +417,73 @@ class OrganizationContractTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.title").value("Senior Software Engineer"));
         mvc.perform(delete("/api/v1/organizations/" + organizationId + "/positions/" + positionId).with(owner))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void salaryRegulationsStartEmptyAndCategoriesComeFromDatabase() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        var owner = jwt().jwt(token -> token.claim("uid", ownerId.toString()).claim("role", "USER"));
+        String organizationId = organizationFor(ownerId, "Salary Empty Org", "salary-empty-org");
+
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/salary-regulations?page=0&size=10").with(owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.total").value(0))
+                .andExpect(jsonPath("$.data").isEmpty());
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/salary-regulations/categories").with(owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data").isEmpty());
+    }
+
+    @Test
+    void salaryRegulationCrudFiltersAndCalculatesTotalInBackend() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        var owner = jwt().jwt(token -> token.claim("uid", ownerId.toString()).claim("role", "USER"));
+        String organizationId = organizationFor(ownerId, "Salary CRUD Org", "salary-crud-org");
+        String body = "{\"ruleCode\":\"SAL-01\",\"name\":\"Kỹ thuật bậc 1\",\"salaryType\":\"Kỹ thuật\","
+                + "\"gradeStep\":\"Bậc 1\",\"coefficient\":1.5,\"minAmount\":10000000,\"maxAmount\":15000000,"
+                + "\"baseSalary\":12000000,\"titleSalary\":500000,\"performanceSalary\":1000000,"
+                + "\"concurrentAllowance\":200000,\"gasolineAllowance\":300000,\"otherAllowance\":100000,"
+                + "\"effectiveDate\":\"2026-09-01\",\"status\":\"ACTIVE\",\"notes\":\"Mức khởi điểm\"}";
+
+        String id = value(post("/api/v1/organizations/" + organizationId + "/salary-regulations"), owner, body, "id");
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/salary-regulations").with(owner))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.meta.total").value(1))
+                .andExpect(jsonPath("$.data[0].ruleCode").value("SAL-01"))
+                .andExpect(jsonPath("$.data[0].totalSalary").value(14100000));
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/salary-regulations/categories").with(owner))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data").value(org.hamcrest.Matchers.hasItem("Kỹ thuật")));
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/salary-regulations?salaryType=Kỹ thuật&status=ACTIVE").with(owner))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.meta.total").value(1));
+        mvc.perform(patch("/api/v1/organizations/" + organizationId + "/salary-regulations/" + id).with(owner)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"Kỹ thuật bậc 1 cập nhật\",\"status\":\"DRAFT\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.name").value("Kỹ thuật bậc 1 cập nhật"))
+                .andExpect(jsonPath("$.data.status").value("DRAFT"));
+        mvc.perform(delete("/api/v1/organizations/" + organizationId + "/salary-regulations/" + id).with(owner))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/salary-regulations").with(owner))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.meta.total").value(0));
+    }
+
+    @Test
+    void salaryRegulationsRespectOrganizationMembershipAndAdminWriteAccess() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID outsiderId = UUID.randomUUID();
+        var owner = jwt().jwt(token -> token.claim("uid", ownerId.toString()).claim("role", "USER"));
+        var member = jwt().jwt(token -> token.claim("uid", memberId.toString()).claim("role", "USER"));
+        var outsider = jwt().jwt(token -> token.claim("uid", outsiderId.toString()).claim("role", "USER"));
+        String organizationId = organizationFor(ownerId, "Salary Access Org", "salary-access-org");
+        value(put("/api/v1/organizations/" + organizationId + "/members"), owner,
+                "{\"userId\":\"" + memberId + "\",\"role\":\"MEMBER\"}", "id");
+
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/salary-regulations").with(member))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/organizations/" + organizationId + "/salary-regulations").with(member)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"ruleCode\":\"SAL-01\",\"name\":\"Mức lương\",\"salaryType\":\"Chính thức\",\"effectiveDate\":\"2026-09-01\"}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/organizations/" + organizationId + "/salary-regulations").with(outsider))
+                .andExpect(status().isForbidden());
     }
 
     private String organizationFor(UUID ownerId, String name, String slug) throws Exception {

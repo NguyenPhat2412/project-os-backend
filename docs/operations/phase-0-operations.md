@@ -2,8 +2,14 @@
 
 ## Local development
 
-Native macOS PostgreSQL is the default local database at `localhost:5432`.
-Start Redis and optional storage with `docker compose -f compose.monolith.yaml up -d redis minio zipkin` and run `application/monolith-app` with Java 21. The canonical database is always PostgreSQL `public`; do not use generated demo rows.
+The canonical local Docker stack is `compose.monolith.yaml`. Start PostgreSQL,
+Redis, MinIO and Zipkin with `docker compose -f compose.monolith.yaml up -d`.
+The monolith can also be run directly with Java 21 through
+`scripts/dev/start-backend-dev.sh`; that script reuses the same local
+infrastructure Compose file and reloads only the Java process when source code
+changes. The canonical database is always PostgreSQL `public`; do not use
+generated demo rows.
+The local `.env` intentionally contains local bootstrap and port settings. It is not copied to `.env.production`.
 
 ## Production deployment
 
@@ -18,6 +24,9 @@ The manual release helper is `deploy/release/deploy-image.sh`; it creates the da
 Before starting production, run `scripts/env/validate-production-env.sh /opt/project-os/.env.production`. It rejects placeholders, localhost database URLs, missing TLS, weak secrets, wildcard CORS, public OpenAPI and insecure cookie/rate-limit settings.
 
 Production must use a managed/private PostgreSQL endpoint with `sslmode=verify-full`. Never publish port 5432 on the VPS. The runtime user must not be a database owner and must not have DDL permissions.
+
+The administrator environment Settings API is read-only in the production profile. Change production values through the secret manager or release pipeline; `PUT /api/v1/admin/environment-config` and its rollback endpoint return `environment_config_read_only`.
+SMTP is optional. Keep `EMAIL_WORKER_ENABLED=false` until production SMTP credentials are supplied through the secret manager; never copy the local Gmail app password into production.
 
 The GitHub deploy workflow is intentionally manual. It requires `DEPLOY_HOST`, `DEPLOY_USER`, and `DEPLOY_SSH_KEY` secrets plus the `DEPLOY_PATH` production environment variable. It changes only that directory.
 

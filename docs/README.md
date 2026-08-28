@@ -10,6 +10,7 @@ instructions must be recorded here.
 docs/
 ├── README.md             # This index and documentation rules
 ├── architecture/         # Current architecture and technical specifications
+├── api/                   # OpenAPI and API consumer documentation
 ├── plans/                # Implementation plans, one file per initiative
 ├── decisions/            # Architecture Decision Records (ADR)
 ├── database/             # Schema, Flyway, FK, backup and data-quality notes
@@ -35,6 +36,7 @@ docs/
 - [Target backend architecture](architecture/target-architecture.md)
 - [Cleanup inventory 2026-08-25](architecture/cleanup-inventory-2026-08-25.md)
 - [Database schema contract](database/schema-contract.md)
+- [Swagger/OpenAPI guide](api/swagger-openapi.md)
 - [Modular monolith design](architecture/2026-08-22-training-knowledge-three-tier-design.md)
 - [Training and knowledge implementation plan](plans/2026-08-22-training-knowledge-three-tier.md)
 - [Documentation structure plan](plans/2026-08-23-docs-structure-standardization.md)
@@ -47,6 +49,8 @@ docs/
 - [Phase 0 operations](operations/phase-0-operations.md)
 - [Production runbook](operations/production-runbook.md)
 - [Backend production security hardening](plans/2026-08-24-backend-production-security-hardening.md)
+- [Monolith database configuration cleanup](plans/2026-08-27-monolith-database-configuration-cleanup.md)
+- [Environment Settings synchronization cleanup](plans/2026-08-28-environment-settings-sync-cleanup.md)
 - [Deployment worklog archive](archive/WORKLOG_2026-07-10_DEPLOY.md)
 
 Documents in `archive/` are reference-only and must not override current rules.

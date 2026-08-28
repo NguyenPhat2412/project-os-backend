@@ -139,4 +139,19 @@ class OperationsLegacyCrudTest {
 
         assertThat(result).containsEntry("organizationId", organizationId).containsEntry("code", "HN-01");
     }
+
+    @Test
+    void employeeCannotReadGlobalMasterDataThroughOrganizationScopedApi() {
+        UUID organizationId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        OrganizationDirectory directory = Mockito.mock(OrganizationDirectory.class);
+        when(directory.access(organizationId, actorId))
+                .thenReturn(new OrganizationDirectory.Access("Asia/Ho_Chi_Minh", "EMPLOYEE"));
+        when(organizations.getIfAvailable()).thenReturn(directory);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                service.list(organizationId, "master-data", 0, 100, "", "", actorId, false))
+                .isInstanceOf(com.projectos.backend.platform.api.ApiException.class)
+                .hasMessageContaining("Root admin access is required");
+    }
 }

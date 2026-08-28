@@ -19,7 +19,7 @@ CHECKSUM_FILE="$BACKUP_PATH/SHA256SUMS"
   echo "Refusing restore: SHA256SUMS is missing beside the backup" >&2
   exit 2
 }
-expected_checksum=$(awk '$2 == "postgres-public.dump" { print $1; exit }' "$CHECKSUM_FILE")
+expected_checksum=$(awk '$2 == "postgres-public.dump" || $2 ~ /\/postgres-public\.dump$/ { print $1; exit }' "$CHECKSUM_FILE")
 [ -n "$expected_checksum" ] || {
   echo "Refusing restore: checksum entry for postgres-public.dump is missing" >&2
   exit 2

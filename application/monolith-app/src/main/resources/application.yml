@@ -46,6 +46,11 @@ spring:
       max-request-size: ${MAX_REQUEST_SIZE:25MB}
 
 app:
+  public-web-url: ${PUBLIC_WEB_URL:http://localhost:3000}
+  environment-file: ${PROJECT_OS_ENV_FILE:}
+  environment-snapshot-directory: ${PROJECT_OS_ENV_SNAPSHOT_DIR:${java.io.tmpdir}/project-os-environment-snapshots}
+  environment-config:
+    read-only: ${ENVIRONMENT_CONFIG_READ_ONLY:false}
   monolith:
     enabled: true
   resources: ${APP_RESOURCES:projects,members,roles,role-assignments,settings,tasks,task-columns,sprints,epics,user-stories,bugs,bug-columns,daily-reports,documents,folders,wikis,wiki-links,attachments,doc-activities,training,training-attendees,resources,risks,budget-items,expenses,timeline-phases,milestones,meetings,notes,action-items,comments,activities,notifications}
@@ -55,15 +60,25 @@ app:
   rbac:
     enabled: true
     internal-token: ${INTERNAL_SERVICE_TOKEN}
+  email:
+    worker:
+      enabled: ${EMAIL_WORKER_ENABLED:false}
+      interval-ms: ${EMAIL_WORKER_INTERVAL_MS:10000}
+      batch-size: ${EMAIL_WORKER_BATCH_SIZE:50}
+      max-attempts: ${EMAIL_WORKER_MAX_ATTEMPTS:3}
+      username: ${SMTP_USERNAME:}
+      password: ${SMTP_PASSWORD:}
+      connect-timeout-ms: ${SMTP_CONNECT_TIMEOUT_MS:10000}
+      timeout-ms: ${SMTP_TIMEOUT_MS:15000}
   outbox:
     enabled: ${OUTBOX_ENABLED:true}
     interval-ms: ${OUTBOX_INTERVAL_MS:5000}
     internal-token: ${INTERNAL_SERVICE_TOKEN}
   storage:
-    endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
-    access-key: ${MINIO_ACCESS_KEY:}
-    secret-key: ${MINIO_SECRET_KEY:}
-    bucket: ${MINIO_BUCKET:project-os}
+    endpoint: ${OBJECT_STORAGE_ENDPOINT:${MINIO_ENDPOINT:http://localhost:9000}}
+    access-key: ${OBJECT_STORAGE_ACCESS_KEY:${MINIO_ACCESS_KEY:}}
+    secret-key: ${OBJECT_STORAGE_SECRET_KEY:${MINIO_SECRET_KEY:}}
+    bucket: ${OBJECT_STORAGE_BUCKET:${MINIO_BUCKET:project-os}}
   jwt:
     secret: ${JWT_SECRET}
     ttl-hours: ${JWT_TTL_HOURS:8}
@@ -82,12 +97,17 @@ app:
       enabled: ${RATE_LIMIT_ENABLED:false}
 
 springdoc:
+  packages-to-scan: com.projectos.backend
+  paths-to-match: /api/v1/**
+  paths-to-exclude: /api/v1/internal/**
+  show-actuator: false
   api-docs:
     path: /v3/api-docs
     enabled: ${OPENAPI_ENABLED:true}
   swagger-ui:
     path: /swagger-ui.html
     enabled: ${OPENAPI_ENABLED:true}
+    disable-swagger-default-url: true
     tags-sorter: alpha
     operations-sorter: alpha
 
@@ -101,3 +121,8 @@ management:
       show-details: ${ACTUATOR_HEALTH_SHOW_DETAILS:when_authorized}
       probes:
         enabled: true
+ninerouter:
+  url: ${NINEROUTER_URL:http://127.0.0.1:20128}
+  key: ${NINEROUTER_KEY:}
+  connect-timeout: ${NINEROUTER_CONNECT_TIMEOUT:2s}
+  read-timeout: ${NINEROUTER_READ_TIMEOUT:60s}

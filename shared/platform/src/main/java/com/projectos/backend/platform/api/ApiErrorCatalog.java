@@ -14,6 +14,7 @@ public class ApiErrorCatalog {
     private static final Map<String, Entry> ENTRIES = Map.ofEntries(
             Map.entry("unauthorized", new Entry("Phiên đăng nhập không hợp lệ", "Vui lòng đăng nhập lại.")),
             Map.entry("invalid_credentials", new Entry("Thông tin đăng nhập không đúng", "Email hoặc mật khẩu không đúng.")),
+            Map.entry("login_password_invalid", new Entry("Mật khẩu không đúng", "Mật khẩu bạn nhập không chính xác.")),
             Map.entry("forbidden", new Entry("Không có quyền truy cập", "Bạn không có quyền thực hiện thao tác này.")),
             Map.entry("organization_access_denied", new Entry("Không có quyền truy cập tổ chức", "Bạn không có quyền truy cập dữ liệu này.")),
             Map.entry("organization_admin_required", new Entry("Cần quyền quản trị tổ chức", "Thao tác này yêu cầu quyền quản trị tổ chức.")),
@@ -39,6 +40,20 @@ public class ApiErrorCatalog {
             Map.entry("rate_limited", new Entry("Bạn thao tác quá nhanh", "Vui lòng chờ một lát rồi thử lại.")),
             Map.entry("internal_error", new Entry("Lỗi hệ thống", "Hệ thống đang gặp sự cố. Vui lòng thử lại sau.")),
             Map.entry("backend_unavailable", new Entry("Hệ thống tạm thời gián đoạn", "Không thể kết nối đến hệ thống. Vui lòng thử lại sau."))
+            ,Map.entry("ai_model_not_found", new Entry("Mô hình không khả dụng", "Mô hình trợ lý hiện không khả dụng."))
+            ,Map.entry("ai_model_not_allowed", new Entry("Mô hình chưa được cấp phép", "Mô hình này chưa được bật cho tổ chức."))
+            ,Map.entry("ai_allowed_models_invalid", new Entry("Danh sách mô hình không hợp lệ", "Vui lòng kiểm tra lại các mô hình được phép sử dụng."))
+            ,Map.entry("ai_temperature_invalid", new Entry("Cấu hình phản hồi không hợp lệ", "Độ linh hoạt câu trả lời nằm ngoài khoảng cho phép."))
+            ,Map.entry("ai_max_tokens_invalid", new Entry("Giới hạn phản hồi không hợp lệ", "Số token phản hồi nằm ngoài khoảng cho phép."))
+            ,Map.entry("ai_model_name_invalid", new Entry("Tên mô hình không hợp lệ", "Vui lòng chọn mô hình từ danh sách khả dụng."))
+            ,Map.entry("onboarding_invitation_invalid", new Entry("Đường link không còn hiệu lực", "Đường link kê khai không hợp lệ hoặc đã hết hạn."))
+            ,Map.entry("onboarding_invitation_not_found", new Entry("Không tìm thấy đường link", "Đường link kê khai không còn tồn tại hoặc đã bị thu hồi."))
+            ,Map.entry("onboarding_invitation_expiry_invalid", new Entry("Thời hạn không hợp lệ", "Vui lòng chọn thời hạn đường link phù hợp."))
+            ,Map.entry("onboarding_target_role_invalid", new Entry("Vai trò không hợp lệ", "Chỉ có thể tiếp nhận ứng viên với vai trò được cho phép."))
+            ,Map.entry("onboarding_consent_required", new Entry("Chưa xác nhận thông tin", "Vui lòng xác nhận thông tin trước khi gửi hồ sơ."))
+            ,Map.entry("onboarding_already_submitted", new Entry("Hồ sơ đã được gửi", "Đường link này đã được sử dụng hoặc hồ sơ đã tồn tại."))
+            ,Map.entry("onboarding_request_not_found", new Entry("Không tìm thấy hồ sơ", "Hồ sơ tiếp nhận không còn tồn tại."))
+            ,Map.entry("onboarding_request_already_reviewed", new Entry("Hồ sơ đã được xử lý", "Hồ sơ này đã được tiếp nhận hoặc từ chối trước đó."))
     );
 
     public Descriptor describe(HttpStatus status, String code) {

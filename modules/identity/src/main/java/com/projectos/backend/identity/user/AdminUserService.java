@@ -102,8 +102,9 @@ class AdminUserService {
         } else {
             user.updateAdminFields(nextEmail, nextName, avatar, nextRole, nextStatus);
         }
-        if (request.password() != null) user.changePassword(passwords.encode(request.password()));
-        if (authorizationChanged) tokens.revokeAll(id);
+        boolean credentialsChanged = request.password() != null;
+        if (credentialsChanged) user.changePassword(passwords.encode(request.password()));
+        if (authorizationChanged || credentialsChanged) tokens.revokeAll(id);
         return UserView.from(user);
     }
 

@@ -2,9 +2,9 @@ server.port: ${SERVER_PORT:8087}
 spring:
   application.name: organization
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5433/project_os}
-    username: ${ORGANIZATION_DB_USERNAME:organization_app}
-    password: ${ORGANIZATION_DB_PASSWORD:local_organization_password}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/project_os}
+    username: ${DB_USERNAME:${POSTGRES_USER:project_os_owner}}
+    password: ${DB_PASSWORD:${POSTGRES_PASSWORD:postgres_dev_password_123456}}
     hikari.maximum-pool-size: ${DB_POOL_SIZE:5}
   data.redis:
     host: ${REDIS_HOST:localhost}
@@ -27,8 +27,9 @@ springdoc.swagger-ui.enabled: ${OPENAPI_ENABLED:false}
 app:
   organization-schema: organization
   environment-file: ${PROJECT_OS_ENV_FILE:}
-  jwt.secret: ${JWT_SECRET:local-development-jwt-secret-32-characters-minimum}
-  internal-token: ${INTERNAL_SERVICE_TOKEN:local-internal-service-token-change-me}
+  environment-snapshot-directory: ${PROJECT_OS_ENV_SNAPSHOT_DIR:${java.io.tmpdir}/project-os-environment-snapshots}
+  jwt.secret: ${JWT_SECRET}
+  internal-token: ${INTERNAL_SERVICE_TOKEN}
   workspace-cache:
     enabled: ${WORKSPACE_CACHE_ENABLED:true}
     ttl-seconds: ${WORKSPACE_CACHE_TTL_SECONDS:30}

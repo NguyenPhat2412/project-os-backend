@@ -8,33 +8,47 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.projectos.backend.platform.api.ApiException;
 import com.projectos.backend.platform.api.PageResponse;
+import com.projectos.backend.platform.organization.NotificationCategoryDirectory;
+import com.projectos.backend.platform.project.ProjectAccessPort;
+import com.projectos.backend.platform.project.ProjectPermissionChecker;
 
 @Service
 public class ResourceApplicationService {
     private final ResourceRecordRepository records;
     private final ResourceCatalog catalog;
     private final OutboxPublisher outbox;
+    private final ObjectProvider<NotificationCategoryDirectory> notificationCategories;
+    private final ObjectProvider<ProjectAccessPort> projects;
+    private final ObjectProvider<ProjectPermissionChecker> permissions;
+    private final boolean rbacEnabled;
 
     public ResourceApplicationService(ResourceRecordRepository records, ResourceCatalog catalog,
-                                      OutboxPublisher outbox) {
+                                      OutboxPublisher outbox,
+                                      ObjectProvider<NotificationCategoryDirectory> notificationCategories,
+                                      ObjectProvider<ProjectAccessPort> projects,
+                                      ObjectProvider<ProjectPermissionChecker> permissions,
+                                      @Value("${app.rbac.enabled:true}") boolean rbacEnabled) {
         this.records = records;
         this.catalog = catalog;
         this.outbox = outbox;
+        this.notificationCategories = notificationCategories;
+        this.projects = projects;
+        this.permissions = permissions;
+        this.rbacEnabled = rbacEnabled;
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<JsonNode> list(UUID projectId, String resource, int page, int size) {
-        return list(projectId, resource, page, size, "");
-    }
-
-    @Transactional(readOnly = true)
-    public PageResponse<JsonNode> list(UUID projectId, String resource, int page, int size, String search) {
+    public PageResponse<JsonNode> list(UUID projectId, String resource, int page, int size, String search,
+                                       UUID actorId, boolean rootAdmin) {
         catalog.require(resource);
+        requireProjectPermission(projectId, resource, "read", actorId, rootAdmin);
         if (page < 0 || size < 1 || size > 200) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_pagination",
                     "page must be >= 0 and size must be between 1 and 200");
@@ -50,21 +64,29 @@ public class ResourceApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public JsonNode get(UUID projectId, String resource, String externalId) {
+    public JsonNode get(UUID projectId, String resource, String externalId, UUID actorId, boolean rootAdmin) {
         catalog.require(resource);
+        requireProjectPermission(projectId, resource, "read", actorId, rootAdmin);
         return view(find(projectId, resource, externalId));
     }
 
     @Transactional
     public JsonNode createMutable(UUID projectId, String resource, JsonNode body, UUID actorId) {
-        catalog.requireMutable(resource);
-        return create(projectId, resource, body, actorId);
+        return createMutable(projectId, resource, body, actorId, false);
     }
 
     @Transactional
-    public JsonNode create(UUID projectId, String resource, JsonNode body, UUID actorId) {
+    public JsonNode createMutable(UUID projectId, String resource, JsonNode body, UUID actorId, boolean rootAdmin) {
+        catalog.requireMutable(resource);
+        return create(projectId, resource, body, actorId, rootAdmin);
+    }
+
+    @Transactional
+    public JsonNode create(UUID projectId, String resource, JsonNode body, UUID actorId, boolean rootAdmin) {
         catalog.require(resource);
+        requireProjectPermission(projectId, resource, "create", actorId, rootAdmin);
         ObjectNode payload = payload(body);
+        validateNotificationCategory(projectId, resource, payload);
         String legacyId = text(payload, "legacyId");
         if (legacyId == null) legacyId = preserveExternalId(text(payload, "id"));
         payload.remove(List.of("id", "uuid", "legacyId", "projectId", "createdAt", "updatedAt"));
@@ -77,10 +99,22 @@ public class ResourceApplicationService {
         return view(record);
     }
 
+    /**
+     * Compatibility overload for in-process application services. It never
+     * bypasses authorization; only the explicit rootAdmin overload can do so.
+     */
     @Transactional
-    public JsonNode put(UUID projectId, String resource, String externalId, JsonNode body, UUID actorId) {
+    public JsonNode create(UUID projectId, String resource, JsonNode body, UUID actorId) {
+        return create(projectId, resource, body, actorId, false);
+    }
+
+    @Transactional
+    public JsonNode put(UUID projectId, String resource, String externalId, JsonNode body, UUID actorId,
+                         boolean rootAdmin) {
         catalog.requireMutable(resource);
+        requireProjectPermission(projectId, resource, "update", actorId, rootAdmin);
         ObjectNode payload = payload(body);
+        validateNotificationCategory(projectId, resource, payload);
         payload.remove(List.of("id", "uuid", "legacyId", "projectId", "createdAt", "updatedAt"));
         ResourceRecord record = findOptional(projectId, resource, externalId).orElseGet(() ->
                 new ResourceRecord(projectId, resource, preserveExternalId(externalId), payload.deepCopy(), actorId));
@@ -91,11 +125,16 @@ public class ResourceApplicationService {
     }
 
     @Transactional
-    public JsonNode patch(UUID projectId, String resource, String externalId, JsonNode body, UUID actorId) {
+    public JsonNode patch(UUID projectId, String resource, String externalId, JsonNode body, UUID actorId,
+                          boolean rootAdmin) {
         catalog.requireMutable(resource);
+        requireProjectPermission(projectId, resource, "update", actorId, rootAdmin);
         ResourceRecord record = find(projectId, resource, externalId);
         ObjectNode merged = payload(record.getPayload());
         ObjectNode patch = payload(body);
+        if ("notifications".equals(resource) && patch.has("category")) {
+            validateNotificationCategory(projectId, resource, patch);
+        }
         patch.remove(List.of("id", "uuid", "legacyId", "projectId", "createdAt", "updatedAt"));
         for (Map.Entry<String, JsonNode> field : patch.properties()) {
             JsonNode value = field.getValue();
@@ -111,16 +150,18 @@ public class ResourceApplicationService {
     }
 
     @Transactional
-    public void delete(UUID projectId, String resource, String externalId, UUID actorId) {
+    public void delete(UUID projectId, String resource, String externalId, UUID actorId, boolean rootAdmin) {
         catalog.requireMutable(resource);
+        requireProjectPermission(projectId, resource, "delete", actorId, rootAdmin);
         ResourceRecord record = find(projectId, resource, externalId);
         outbox.record(record, "deleted", actorId);
         records.delete(record);
     }
 
     @Transactional
-    public List<JsonNode> reorder(UUID projectId, String resource, JsonNode body, UUID actorId) {
+    public List<JsonNode> reorder(UUID projectId, String resource, JsonNode body, UUID actorId, boolean rootAdmin) {
         catalog.requireMutable(resource);
+        requireProjectPermission(projectId, resource, "update", actorId, rootAdmin);
         if (!body.isArray()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_reorder", "Expected an array of updates");
         }
@@ -179,6 +220,24 @@ public class ResourceApplicationService {
                 ? null : value.asText().trim();
     }
 
+    private void validateNotificationCategory(UUID projectId, String resource, ObjectNode payload) {
+        if (!"notifications".equals(resource)) return;
+        String category = text(payload, "category");
+        if (category == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "notification_category_required",
+                    "Phân loại thông báo là bắt buộc.");
+        }
+        ProjectAccessPort projectAccess = projects.getIfAvailable();
+        NotificationCategoryDirectory categories = notificationCategories.getIfAvailable();
+        if (projectAccess == null || categories == null) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "notification_category_service_unavailable",
+                    "Chưa thể kiểm tra phân loại thông báo.");
+        }
+        UUID organizationId = projectAccess.organizationId(projectId).orElseThrow(() ->
+                new ApiException(HttpStatus.NOT_FOUND, "project_not_found", "Không tìm thấy dự án."));
+        categories.requireActiveCategory(organizationId, category);
+    }
+
     private String preserveExternalId(String value) {
         // Record UUIDs and client business IDs are different namespaces. A
         // membership uses the user's UUID as its business ID, so stripping a
@@ -188,5 +247,21 @@ public class ResourceApplicationService {
 
     private boolean isLegacyDeleteField(JsonNode value) {
         return value.isObject() && "deleteField".equals(value.path("_methodName").asText());
+    }
+
+    private void requireProjectPermission(UUID projectId, String resource, String action,
+                                          UUID actorId, boolean rootAdmin) {
+        if (rootAdmin || !rbacEnabled) return;
+        if (actorId == null) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "project_access_denied", "Project access denied");
+        }
+        ProjectPermissionChecker checker = permissions.getIfAvailable();
+        if (checker == null) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "permission_service_unavailable",
+                    "Permission service is unavailable");
+        }
+        if (!checker.allowed(projectId, actorId, resource, action)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "project_access_denied", "Project access denied");
+        }
     }
 }
