@@ -4,6 +4,16 @@
 Future plans, architecture changes, decisions, migration notes, and operational
 instructions must be recorded here.
 
+## Documentation governance
+
+Use the [root AI brain](../../docs/AI/README.md) for cross-repository context and the [document registry](../../docs/AI/document-registry.md) for ownership and source precedence. This directory owns Backend implementation, API, PostgreSQL/Flyway, operations, plans, memory, decisions, and Backend-specific history.
+
+- Documents under `archive/` are historical only and cannot override current Backend architecture, security, API, or data-integrity guidance.
+- New multi-step Backend work starts with a dated plan in `docs/plans/YYYY-MM-DD-<name>.md`.
+- Database changes document preflight, migration order, rollback, and verification in `docs/database/`.
+- Source code, tests, and runtime evidence are required before a plan or review is marked complete.
+- Root ProjectOS architecture and three-tier/no-mock rules override local or vendor guidance.
+
 ## Structure
 
 ```text

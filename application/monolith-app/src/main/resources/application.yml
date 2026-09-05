@@ -50,7 +50,7 @@ app:
   environment-file: ${PROJECT_OS_ENV_FILE:}
   environment-snapshot-directory: ${PROJECT_OS_ENV_SNAPSHOT_DIR:${java.io.tmpdir}/project-os-environment-snapshots}
   environment-config:
-    read-only: ${ENVIRONMENT_CONFIG_READ_ONLY:false}
+    read-only: ${ENVIRONMENT_CONFIG_READ_ONLY:true}
   monolith:
     enabled: true
   resources: ${APP_RESOURCES:projects,members,roles,role-assignments,settings,tasks,task-columns,sprints,epics,user-stories,bugs,bug-columns,daily-reports,documents,folders,wikis,wiki-links,attachments,doc-activities,training,training-attendees,resources,risks,budget-items,expenses,timeline-phases,milestones,meetings,notes,action-items,comments,activities,notifications}
